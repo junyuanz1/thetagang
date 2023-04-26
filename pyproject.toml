@@ -19,6 +19,7 @@ python-dateutil = "^2.8.1"
 pytimeparse = "^1.1.8"
 schema = "^0.7.3"
 toml = "^0.10.2"
+prettytable = "^3.7.0"
 
 [tool.poetry.group.dev.dependencies]
 autoflake = "^2.0"
