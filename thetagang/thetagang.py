@@ -105,6 +105,12 @@ def start(config_path: str, without_ibc: bool = False) -> None:
         "=",
         f"{dfmt(config['orders']['minimum_credit'])}",
     )
+    config_table.add_row(
+        "",
+        "Price Strategy",
+        "=",
+        f"{config['orders']['price_strategy']}",
+    )
 
     config_table.add_section()
     config_table.add_row("[spring_green1]Close option positions")
@@ -375,6 +381,7 @@ def start(config_path: str, without_ibc: bool = False) -> None:
     symbols_table.add_column("Put delta", justify="right")
     symbols_table.add_column("Put strike limit", justify="right")
     symbols_table.add_column("Put threshold", justify="right")
+    symbols_table.add_column("Price Strategy", justify="right")
     for symbol, sconfig in config["symbols"].items():
         symbols_table.add_row(
             symbol,
@@ -394,6 +401,7 @@ def start(config_path: str, without_ibc: bool = False) -> None:
                 if get_write_threshold_sigma(config, symbol, "P")
                 else pfmt(get_write_threshold_perc(config, symbol, "P"))
             ),
+            sconfig.get("price_strategy", ""),
         )
     assert (
         round(
