@@ -63,25 +63,25 @@ exchange = "SMART"
 # midpoint price if `symbol.<symbol>.adjust_price_after_delay = true`.
 price_update_delay = [30, 60]
 
-# Pricing mode determines how the system calculates the price for orders. 
+# Price strategy determines how the system calculates the price for orders. 
 # Select the mode that best aligns with your trading strategy, market conditions, 
 # and risk tolerance.
 #
 # Valid options:
-#   - default: The system automatically determines the price. It may use the midpoint 
-#              or adjust based on the configurations:
-#              `symbol.<symbol>.adjust_price_after_delay = true` and 
-#              `orders.price_update_delay`.
-#   - greedy: Uses the ask price for sell orders and the bid price for buy orders. 
-#             This is suitable for scenarios where the bid/ask spread is large 
-#             and you aim to capture sudden underlying movements. This mode 
-#             disregards `symbol.<symbol>.adjust_price_after_delay` and 
-#             `orders.price_update_delay` configurations.
+#   - midpoint: The system automatically determines the price. It may use the midpoint 
+#               or adjust based on the configurations:
+#               `symbol.<symbol>.adjust_price_after_delay = true` and 
+#               `orders.price_update_delay`.
+#   - spread_capture: Uses the ask price for sell orders and the bid price for buy orders. 
+#                     This is suitable for scenarios where the bid/ask spread is large 
+#                     and you aim to capture sudden underlying movements. This mode 
+#                     disregards `symbol.<symbol>.adjust_price_after_delay` and 
+#                     `orders.price_update_delay` configurations.
 #
 # The pricing mode can be overridden for specific symbols using:
-# `symbol.<symbol>.pricing_mode`.
+# `symbol.<symbol>.price_strategy`.
 #
-pricing_mode = "default"
+price_strategy = "midpoint"
 
 # Set a minimum credit order price, to avoid orders where the credit (or debit)
 # is so low that it doesn't even cover broker commission. We default to $0.05,
@@ -388,7 +388,7 @@ minimum_open_interest = 10
   # and the bid price for buys, bypassing the midpoint calculation. 
   # This approach is ideal for capturing sudden price movements but may involve higher 
   # transaction costs due to the wide spread.
-  pricing_mode = "greedy"
+  price_strategy = "spread_capture"
 
   # You can include a symbol, but instruct ThetaGang not to place any trades for
   # that symbol by setting `no_trading = true`. This allows you to include
