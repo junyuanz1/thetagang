@@ -63,6 +63,26 @@ exchange = "SMART"
 # midpoint price if `symbol.<symbol>.adjust_price_after_delay = true`.
 price_update_delay = [30, 60]
 
+# Pricing mode determines how the system calculates the price for orders. 
+# Select the mode that best aligns with your trading strategy, market conditions, 
+# and risk tolerance.
+#
+# Valid options:
+#   - default: The system automatically determines the price. It may use the midpoint 
+#              or adjust based on the configurations:
+#              `symbol.<symbol>.adjust_price_after_delay = true` and 
+#              `orders.price_update_delay`.
+#   - greedy: Uses the ask price for sell orders and the bid price for buy orders. 
+#             This is suitable for scenarios where the bid/ask spread is large 
+#             and you aim to capture sudden underlying movements. This mode 
+#             disregards `symbol.<symbol>.adjust_price_after_delay` and 
+#             `orders.price_update_delay` configurations.
+#
+# The pricing mode can be overridden for specific symbols using:
+# `symbol.<symbol>.pricing_mode`.
+#
+pricing_mode = "default"
+
 # Set a minimum credit order price, to avoid orders where the credit (or debit)
 # is so low that it doesn't even cover broker commission. We default to $0.05,
 # but you can set this to 0.0 (or comment it out) if you want to permit any
@@ -361,6 +381,14 @@ minimum_open_interest = 10
   # symbols with this set to true). The amount of time we'll wait is chosen
   # randomly from the range defined by `orders.price_update_delay`.
   adjust_price_after_delay = false
+
+
+  # The bid/ask spread may be significant for certain contracts. 
+  # Setting the pricing mode to "greedy" will submit orders using the ask price for sells 
+  # and the bid price for buys, bypassing the midpoint calculation. 
+  # This approach is ideal for capturing sudden price movements but may involve higher 
+  # transaction costs due to the wide spread.
+  pricing_mode = "greedy"
 
   # You can include a symbol, but instruct ThetaGang not to place any trades for
   # that symbol by setting `no_trading = true`. This allows you to include
