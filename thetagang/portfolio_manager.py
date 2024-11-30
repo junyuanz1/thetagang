@@ -30,6 +30,7 @@ from rich.table import Table
 from thetagang.fmt import dfmt, ffmt, ifmt, pfmt
 from thetagang.util import (
     account_summary_to_dict,
+    adjust_price_after_delay_enabled,
     algo_params_from,
     calculate_net_short_positions,
     can_write_when,
@@ -1021,7 +1022,7 @@ class PortfolioManager:
             order = LimitOrder(
                 "SELL",
                 quantity,
-                round(get_higher_price(sell_ticker), 2),
+                get_higher_price(self.config, sell_ticker),
                 algoStrategy=self.get_algo_strategy(),
                 algoParams=self.get_algo_params(),
                 tif="DAY",
@@ -1064,7 +1065,7 @@ class PortfolioManager:
             order = LimitOrder(
                 "SELL",
                 quantity,
-                round(get_higher_price(sell_ticker), 2),
+                get_higher_price(self.config, sell_ticker),
                 algoStrategy=self.get_algo_strategy(),
                 algoParams=self.get_algo_params(),
                 tif="DAY",
@@ -1380,9 +1381,9 @@ class PortfolioManager:
                 ticker = self.get_ticker_for(position.contract, midpoint=True)
                 is_short = position.position < 0
                 price = (
-                    round(get_lower_price(ticker), 2)
+                    get_lower_price(self.config, ticker)
                     if is_short
-                    else round(get_higher_price(ticker), 2)
+                    else get_higher_price(self.config, ticker)
                 )
                 if util.isNan(price) or math.isnan(price) or not price:
                     # if the price is near zero or NaN, use the minimum price
@@ -1966,7 +1967,7 @@ class PortfolioManager:
                             sell_ticker = self.get_ticker_for(
                                 position.contract, midpoint=True
                             )
-                            price = round(get_lower_price(sell_ticker), 2)
+                            price = get_lower_price(self.config, sell_ticker)
                             qty = abs(position.position)
                             order = LimitOrder(
                                 "SELL",
@@ -2071,7 +2072,7 @@ class PortfolioManager:
                                 f"Something went wrong, buy_ticker={buy_ticker}"
                             )
                         status.start()
-                        price = round(get_lower_price(buy_ticker), 2)
+                        price = get_lower_price(self.config, buy_ticker)
                         qty = math.floor(
                             allocation_amount
                             / price
@@ -2300,9 +2301,7 @@ class PortfolioManager:
         if (
             all(
                 [
-                    not self.config["symbols"][symbol].get(
-                        "adjust_price_after_delay", False
-                    )
+                    not adjust_price_after_delay_enabled(self.config, symbol)
                     for symbol in self.config["symbols"]
                 ]
             )
@@ -2332,11 +2331,10 @@ class PortfolioManager:
             for idx, trade in enumerate(self.trades)
             if trade
             and trade.contract.symbol in self.config["symbols"]
-            and self.config["symbols"][trade.contract.symbol].get(
-                "adjust_price_after_delay", False
-            )
+            and adjust_price_after_delay_enabled(self.config, trade.contract.symbol)
             and not trade.isDone()
         ]
+
         for idx, trade in unfilled:
             try:
                 ticker = self.ib.reqMktData(trade.contract)

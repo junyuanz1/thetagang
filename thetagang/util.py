@@ -1,5 +1,6 @@
 import math
 from datetime import datetime
+from enum import Enum
 from operator import itemgetter
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -7,8 +8,16 @@ import ib_async.objects
 import ib_async.ticker
 from ib_async import AccountValue, Order, PortfolioItem, TagValue, Ticker, util
 from ib_async.contract import Option
+from rich.console import Console
 
 from thetagang.options import option_dte
+
+console = Console()
+
+
+class PriceStrategy(Enum):
+    MIDPOINT = "midpoint"
+    SPREAD_CAPTURE = "spread_capture"
 
 
 def account_summary_to_dict(
@@ -187,23 +196,61 @@ def wait_n_seconds(
         body(remaining)
 
 
-def get_higher_price(ticker: Ticker) -> float:
-    # Returns the highest of either the option model price, the midpoint, or the
-    # market price. The midpoint is usually a bit higher than the IB model's
-    # pricing, but we want to avoid leaving money on the table in cases where
-    # the spread might be messed up. This may in some cases make it harder for
-    # orders to fill in a given day, but I think that's a reasonable tradeoff to
-    # avoid leaving money on the table.
-    if ticker.modelGreeks and ticker.modelGreeks.optPrice:
-        return max([midpoint_or_market_price(ticker), ticker.modelGreeks.optPrice])
-    return midpoint_or_market_price(ticker)
+def get_higher_price(config: Dict[str, Any], ticker: Ticker) -> float:
+    price: float = float("nan")
+    if ticker.contract is None:
+        console.print(
+            f"[red]Couldn't get contract from ticker={ticker}, fallback to use midpoint price",
+        )
+    else:
+        if (
+            get_price_strategy(config, ticker.contract.symbol)
+            == PriceStrategy.SPREAD_CAPTURE
+        ):
+            if not ticker.hasBidAsk():
+                console.print(
+                    f"[red]Couldn't get find BidAsk from ticker={ticker}, fallback to use midpoint price",
+                )
+            else:
+                price = ticker.ask
+    if util.isNan(price):
+        # Returns the highest of either the option model price, the midpoint, or the
+        # market price. The midpoint is usually a bit higher than the IB model's
+        # pricing, but we want to avoid leaving money on the table in cases where
+        # the spread might be messed up. This may in some cases make it harder for
+        # orders to fill in a given day, but I think that's a reasonable tradeoff to
+        # avoid leaving money on the table.
+        if ticker.modelGreeks and ticker.modelGreeks.optPrice:
+            price = max([midpoint_or_market_price(ticker), ticker.modelGreeks.optPrice])
+        else:
+            price = midpoint_or_market_price(ticker)
+    return round(price, 2)
 
 
-def get_lower_price(ticker: Ticker) -> float:
-    # Same as get_highest_price(), except get the lower price instead.
-    if ticker.modelGreeks and ticker.modelGreeks.optPrice:
-        return min([midpoint_or_market_price(ticker), ticker.modelGreeks.optPrice])
-    return midpoint_or_market_price(ticker)
+def get_lower_price(config: Dict[str, Any], ticker: Ticker) -> float:
+    price: float = float("nan")
+    if ticker.contract is None:
+        console.print(
+            f"[red]Couldn't get contract from ticker={ticker}, fallback to use midpoint price",
+        )
+    else:
+        if (
+            get_price_strategy(config, ticker.contract.symbol)
+            == PriceStrategy.SPREAD_CAPTURE
+        ):
+            if not ticker.hasBidAsk():
+                console.print(
+                    f"[red]Couldn't get find BidAsk from ticker={ticker}, fallback to use midpoint price",
+                )
+            else:
+                price = ticker.bid
+    if util.isNan(price):
+        # Same as get_highest_price(), except get the lower price instead.
+        if ticker.modelGreeks and ticker.modelGreeks.optPrice:
+            price = min([midpoint_or_market_price(ticker), ticker.modelGreeks.optPrice])
+        else:
+            price = midpoint_or_market_price(ticker)
+    return round(price, 2)
 
 
 def midpoint_or_market_price(ticker: Ticker) -> float:
@@ -222,6 +269,20 @@ def midpoint_or_market_price(ticker: Ticker) -> float:
             return ticker.marketPrice() if not util.isNan(ticker.marketPrice()) else 0.0
 
     return ticker.midpoint()
+
+
+def get_price_strategy(config: Dict[str, Any], symbol: str) -> PriceStrategy:
+    strategy = config["orders"]["price_strategy"]
+    if "price_strategy" in config["symbols"][symbol]:
+        strategy = config["symbols"][symbol]["price_strategy"]
+    return PriceStrategy(strategy)
+
+
+def adjust_price_after_delay_enabled(config: Dict[str, Any], symbol: str) -> bool:
+    return (
+        config["symbols"][symbol].get("adjust_price_after_delay", False)
+        and get_price_strategy(config, symbol) == PriceStrategy.MIDPOINT
+    )
 
 
 def get_target_dte(config: Dict[str, Any], symbol: str) -> int:
