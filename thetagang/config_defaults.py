@@ -12,6 +12,7 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
             "strategy": "Adaptive",
             "params": [["adaptivePriority", "Patient"]],
         },
+        "price_strategy": "midpoint",
     },
     "target": {
         "maximum_new_contracts_percent": 0.05,

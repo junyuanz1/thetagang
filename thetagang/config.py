@@ -11,6 +11,9 @@ error_console = Console(stderr=True, style="bold red")
 console = Console()
 
 
+VALID_PRICE_STRATEGY_CONFIGURATION = ["midpoint", "spread_capture"]
+
+
 def normalize_config(config: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     # Do any pre-processing necessary to the config here, such as handling
     # defaults, deprecated values, config changes, etc.
@@ -94,6 +97,9 @@ def validate_config(config: Dict[str, Dict[str, Any]]) -> None:
                 "market_data_type": And(int, lambda n: 1 <= n <= 4),
             },
             "orders": {
+                Optional("price_strategy"): And(
+                    str, lambda x: x in VALID_PRICE_STRATEGY_CONFIGURATION
+                ),
                 Optional("exchange"): And(str, len),
                 Optional("algo"): algo_settings,
                 Optional("price_update_delay"): And([int], lambda p: len(p) == 2),  # type: ignore
@@ -192,6 +198,9 @@ def validate_config(config: Dict[str, Dict[str, Any]]) -> None:
                         },
                     },
                     Optional("adjust_price_after_delay"): bool,
+                    Optional("price_strategy"): And(
+                        str, lambda x: x in VALID_PRICE_STRATEGY_CONFIGURATION
+                    ),
                     Optional("no_trading"): bool,
                 }
             },
