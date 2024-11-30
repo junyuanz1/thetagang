@@ -1,5 +1,7 @@
 .vscode/
+.idea/
 ibc.log
+thetagang.local.toml
 tws-installer.sh
 
 # Ignore tws installer dir
