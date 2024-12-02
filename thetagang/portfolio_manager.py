@@ -27,6 +27,7 @@ from rich.pretty import Pretty
 from rich.progress import track
 from rich.table import Table
 
+from thetagang.config import Config
 from thetagang.fmt import dfmt, ffmt, ifmt, pfmt
 from thetagang.util import (
     account_summary_to_dict,
@@ -76,10 +77,8 @@ class NoValidContractsError(Exception):
 
 
 class PortfolioManager:
-    def __init__(
-        self, config: Dict[str, Dict[str, Any]], ib: IB, completion_future: Future[bool]
-    ) -> None:
-        self.account_number = config["account"]["number"]
+    def __init__(self, config: Config, ib: IB, completion_future: Future[bool]) -> None:
+        self.account_number = config.account.number
         self.config = config
         self.ib = ib
         self.completion_future = completion_future
@@ -92,7 +91,7 @@ class PortfolioManager:
         self.qualified_contracts: Dict[int, Contract] = {}
 
     def api_response_wait_time(self) -> int:
-        return self.config["ib_async"]["api_response_wait_time"]
+        return self.config.ib_async.api_response_wait_time
 
     def orderStatusEvent(self, trade: Trade) -> None:
         if "Filled" in trade.orderStatus.status:
@@ -273,7 +272,7 @@ class PortfolioManager:
         if not trading_is_allowed(self.config, position.contract.symbol):
             return False
 
-        close_at_pnl = self.config["roll_when"]["close_at_pnl"]
+        close_at_pnl = self.config.roll_when.close_at_pnl
         if close_at_pnl:
             pnl = position_pnl(position)
 
@@ -301,19 +300,19 @@ class PortfolioManager:
         if (
             isinstance(put.contract, Option)
             and self.put_is_itm(put.contract)
-            and self.config["roll_when"]["puts"]["always_when_itm"]
+            and self.config.roll_when.puts.always_when_itm
         ):
             table.add_row(
                 f"{put.contract.localSymbol}",
                 "[blue]Roll",
                 f"[blue]Will be rolled because put is ITM "
-                f"and always_when_itm={self.config['roll_when']['puts']['always_when_itm']}",
+                f"and always_when_itm={self.config.roll_when.puts.always_when_itm}",
             )
             return True
 
         # Check if this put is ITM, and if it's o.k. to roll
         if (
-            not self.config["roll_when"]["puts"]["itm"]
+            not self.config.roll_when.puts.itm
             and isinstance(put.contract, Option)
             and self.put_is_itm(put.contract)
         ):
@@ -322,7 +321,7 @@ class PortfolioManager:
         # Don't roll if there are excess puts and we're configured not to roll
         if (
             put.contract.symbol in self.has_excess_puts
-            and not self.config["roll_when"]["puts"]["has_excess"]
+            and not self.config.roll_when.puts.has_excess
         ):
             table.add_row(
                 f"{put.contract.localSymbol}",
@@ -334,14 +333,11 @@ class PortfolioManager:
         dte = option_dte(put.contract.lastTradeDateOrContractMonth)
         pnl = position_pnl(put)
 
-        roll_when_dte = self.config["roll_when"]["dte"]
-        roll_when_pnl = self.config["roll_when"]["pnl"]
-        roll_when_min_pnl = self.config["roll_when"]["min_pnl"]
+        roll_when_dte = self.config.roll_when.dte
+        roll_when_pnl = self.config.roll_when.pnl
+        roll_when_min_pnl = self.config.roll_when.min_pnl
 
-        if (
-            "max_dte" in self.config["roll_when"]
-            and dte > self.config["roll_when"]["max_dte"]
-        ):
+        if self.config.roll_when.max_dte and dte > self.config.roll_when.max_dte:
             return False
 
         if dte <= roll_when_dte:
@@ -349,7 +345,7 @@ class PortfolioManager:
                 table.add_row(
                     f"{put.contract.localSymbol}",
                     "[blue]Roll",
-                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config['roll_when']['dte']} and P&L of {pfmt(pnl , 1)} is >= {pfmt(roll_when_min_pnl , 1)}",
+                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config.roll_when.dte} and P&L of {pfmt(pnl , 1)} is >= {pfmt(roll_when_min_pnl , 1)}",
                 )
                 return True
             table.add_row(
@@ -359,11 +355,11 @@ class PortfolioManager:
             )
 
         if pnl >= roll_when_pnl:
-            if "max_dte" in self.config["roll_when"]:
+            if self.config.roll_when.max_dte is not None:
                 table.add_row(
                     f"{put.contract.localSymbol}",
                     "[blue]Roll",
-                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config['roll_when']['max_dte']} and P&L of {pfmt(pnl , 1)} is >= {pfmt(roll_when_pnl , 1)}",
+                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config.roll_when.max_dte} and P&L of {pfmt(pnl , 1)} is >= {pfmt(roll_when_pnl , 1)}",
                 )
             else:
                 table.add_row(
@@ -402,19 +398,19 @@ class PortfolioManager:
         if (
             isinstance(call.contract, Option)
             and self.call_is_itm(call.contract)
-            and self.config["roll_when"]["calls"]["always_when_itm"]
+            and self.config.roll_when.calls.always_when_itm
         ):
             table.add_row(
                 f"{call.contract.localSymbol}",
                 "[blue]Roll",
                 f"[blue]Will be rolled because call is ITM "
-                f"and always_when_itm={self.config['roll_when']['calls']['always_when_itm']}",
+                f"and always_when_itm={self.config.roll_when.calls.always_when_itm}",
             )
             return True
 
         # Check if this call is ITM, and it's o.k. to roll
         if (
-            not self.config["roll_when"]["calls"]["itm"]
+            not self.config.roll_when.calls.itm
             and isinstance(call.contract, Option)
             and self.call_is_itm(call.contract)
         ):
@@ -423,7 +419,7 @@ class PortfolioManager:
         # Don't roll if there are excess CCs and we're configured not to roll
         if (
             call.contract.symbol in self.has_excess_calls
-            and not self.config["roll_when"]["calls"]["has_excess"]
+            and not self.config.roll_when.calls.has_excess
         ):
             table.add_row(
                 f"{call.contract.localSymbol}",
@@ -435,14 +431,11 @@ class PortfolioManager:
         dte = option_dte(call.contract.lastTradeDateOrContractMonth)
         pnl = position_pnl(call)
 
-        roll_when_dte = self.config["roll_when"]["dte"]
-        roll_when_pnl = self.config["roll_when"]["pnl"]
-        roll_when_min_pnl = self.config["roll_when"]["min_pnl"]
+        roll_when_dte = self.config.roll_when.dte
+        roll_when_pnl = self.config.roll_when.pnl
+        roll_when_min_pnl = self.config.roll_when.min_pnl
 
-        if (
-            "max_dte" in self.config["roll_when"]
-            and dte > self.config["roll_when"]["max_dte"]
-        ):
+        if self.config.roll_when.max_dte and dte > self.config.roll_when.max_dte:
             return False
 
         if dte <= roll_when_dte:
@@ -450,7 +443,7 @@ class PortfolioManager:
                 table.add_row(
                     f"{call.contract.localSymbol}",
                     "[blue]Roll",
-                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config['roll_when']['dte']}"
+                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config.roll_when.dte}"
                     f" and P&L of {pfmt(pnl , 1)} is >= {pfmt(roll_when_min_pnl , 1)}",
                 )
                 return True
@@ -461,11 +454,11 @@ class PortfolioManager:
             )
 
         if pnl >= roll_when_pnl:
-            if "max_dte" in self.config["roll_when"]:
+            if self.config.roll_when.max_dte:
                 table.add_row(
                     f"{call.contract.localSymbol}",
                     "[blue]Roll",
-                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config['roll_when']['max_dte']}"
+                    f"[blue]Can be rolled because DTE of {dte} is <= {self.config.roll_when.max_dte}"
                     f" and P&L of {pfmt(pnl , 1)} is >= {pfmt(roll_when_pnl , 1)}",
                 )
             else:
@@ -479,7 +472,7 @@ class PortfolioManager:
         return False
 
     def get_symbols(self) -> List[str]:
-        return list(self.config["symbols"].keys())
+        return list(self.config.symbols.keys())
 
     def filter_positions(
         self, portfolio_positions: List[PortfolioItem]
@@ -492,7 +485,7 @@ class PortfolioManager:
             and (
                 item.contract.symbol in symbols
                 or item.contract.symbol == "VIX"
-                or item.contract.symbol == self.config["cash_management"]["cash_fund"]
+                or item.contract.symbol == self.config.cash_management.cash_fund
             )
             and item.position != 0
             and item.averageCost != 0
@@ -503,22 +496,22 @@ class PortfolioManager:
         return portfolio_positions_to_dict(self.filter_positions(portfolio_positions))
 
     def initialize_account(self) -> None:
-        self.ib.reqMarketDataType(self.config["account"]["market_data_type"])
+        self.ib.reqMarketDataType(self.config.account.market_data_type)
 
-        if self.config["account"]["cancel_orders"]:
+        if self.config.account.cancel_orders:
             # Cancel any existing orders
             open_trades = self.ib.openTrades()
             for trade in open_trades:
                 if not trade.isDone() and (
                     trade.contract.symbol in self.get_symbols()
                     or (
-                        self.config["vix_call_hedge"]["enabled"]
+                        self.config.vix_call_hedge.enabled
                         and trade.contract.symbol == "VIX"
                     )
                     or (
-                        self.config["cash_management"]["enabled"]
+                        self.config.cash_management.enabled
                         and trade.contract.symbol
-                        == self.config["cash_management"]["cash_fund"]
+                        == self.config.cash_management.cash_fund
                     )
                 ):
                     console.print(f"[red]Canceling order {trade.order}[/red]")
@@ -535,7 +528,7 @@ class PortfolioManager:
 
         if "NetLiquidation" not in account_summary:
             raise RuntimeError(
-                f"Account number {self.config['account']['number']} appears invalid (no account data returned)"
+                f"Account number {self.config.account.number} appears invalid (no account data returned)"
             )
 
         table = Table(title="Account summary")
@@ -836,7 +829,7 @@ class PortfolioManager:
     ) -> int:
         total_buying_power = self.get_buying_power(account_summary)
         max_buying_power = (
-            self.config["target"]["maximum_new_contracts_percent"] * total_buying_power
+            self.config.target.maximum_new_contracts_percent * total_buying_power
         )
         ticker = self.get_ticker_for_stock(
             symbol,
@@ -855,7 +848,7 @@ class PortfolioManager:
         call_actions_table.add_column("Symbol")
         call_actions_table.add_column("Action")
         call_actions_table.add_column("Detail")
-        calculate_net_contracts = self.config["write_when"]["calculate_net_contracts"]
+        calculate_net_contracts = self.config.write_when.calculate_net_contracts
         to_write: List[Tuple[str, str, int, int]] = []
         symbols = set(self.get_symbols())
         for symbol in portfolio_positions:
@@ -1075,12 +1068,12 @@ class PortfolioManager:
             self.enqueue_order(sell_ticker.contract, order)
 
     def get_primary_exchange(self, symbol: str) -> str:
-        return self.config["symbols"][symbol].get("primary_exchange", "")
+        return self.config.symbols[symbol].primary_exchange
 
     def get_buying_power(self, account_summary: Dict[str, AccountValue]) -> int:
         return math.floor(
             float(account_summary["NetLiquidation"].value)
-            * self.config["account"]["margin_usage"]
+            * self.config.account.margin_usage
         )
 
     def check_if_can_write_puts(
@@ -1106,7 +1099,7 @@ class PortfolioManager:
         targets: Dict[str, float] = dict()
         target_additional_quantity: Dict[str, Dict[str, int | bool]] = dict()
 
-        calculate_net_contracts = self.config["write_when"]["calculate_net_contracts"]
+        calculate_net_contracts = self.config.write_when.calculate_net_contracts
 
         positions_summary_table = Table(
             title="Positions summary",
@@ -1134,7 +1127,7 @@ class PortfolioManager:
 
         # Determine target quantity of each stock
         for symbol in track(
-            self.config["symbols"].keys(), description="Calculating target positions..."
+            self.config.symbols.keys(), description="Calculating target positions..."
         ):
             ticker = self.get_ticker_for_stock(
                 symbol, self.get_primary_exchange(symbol)
@@ -1145,7 +1138,7 @@ class PortfolioManager:
             )
 
             targets[symbol] = round(
-                self.config["symbols"][symbol]["weight"] * total_buying_power, 2
+                self.config.symbols[symbol].weight * total_buying_power, 2
             )
             market_price = ticker.marketPrice()
             if (
@@ -1473,7 +1466,7 @@ class PortfolioManager:
 
                 minimum_price = (
                     (lambda: get_minimum_credit(self.config))
-                    if not self.config["roll_when"][kind]["credit_only"]
+                    if not getattr(self.config.roll_when, kind).credit_only
                     else (
                         lambda: midpoint_or_market_price(buy_ticker)
                         + get_minimum_credit(self.config)
@@ -1510,7 +1503,7 @@ class PortfolioManager:
                     account_summary,
                 )
                 from_dte = option_dte(position.contract.lastTradeDateOrContractMonth)
-                roll_when_dte = self.config["roll_when"]["dte"]
+                roll_when_dte = self.config.roll_when.dte
                 if from_dte > roll_when_dte:
                     qty_to_roll = min([qty_to_roll, maximum_new_contracts])
 
@@ -1520,7 +1513,7 @@ class PortfolioManager:
                 # a buy order should be at most the minimum price, when we expect a credit
                 price = (
                     min([price, -get_minimum_credit(self.config)])
-                    if self.config["roll_when"][kind]["credit_only"]
+                    if getattr(self.config.roll_when, kind).credit_only
                     else price
                 )
 
@@ -1579,8 +1572,8 @@ class PortfolioManager:
                 dte = option_dte(position.contract.lastTradeDateOrContractMonth)
                 if (
                     close_if_unable_to_roll(self.config, position.contract.symbol)
-                    and "max_dte" in self.config["roll_when"]
-                    and dte <= self.config["roll_when"]["max_dte"]
+                    and self.config.roll_when.max_dte
+                    and dte <= self.config.roll_when.max_dte
                     and position_pnl(position) > 0
                 ):
                     console.print(
@@ -1653,7 +1646,7 @@ class PortfolioManager:
                     return strike >= underlying_price - 0.05 * underlying_price
                 return False
 
-            chain_expirations = self.config["option_chains"]["expirations"]
+            chain_expirations = self.config.option_chains.expirations
             min_dte = (
                 option_dte(exclude_expirations_before)
                 if exclude_expirations_before
@@ -1674,7 +1667,7 @@ class PortfolioManager:
             rights = [right]
 
             def nearest_strikes(strikes: List[float]) -> List[float]:
-                chain_strikes = self.config["option_chains"]["strikes"]
+                chain_strikes = self.config.option_chains.strikes
                 if right.startswith("P"):
                     return strikes[-chain_strikes:]
                 return strikes[:chain_strikes]
@@ -1794,7 +1787,7 @@ class PortfolioManager:
                     tickers, wait_time=self.api_response_wait_time()
                 )
 
-                minimum_open_interest = self.config["target"]["minimum_open_interest"]
+                minimum_open_interest = self.config.target.minimum_open_interest
                 if minimum_open_interest > 0:
                     status.stop()
                     tickers = [
@@ -1882,13 +1875,13 @@ class PortfolioManager:
             return the_chosen_ticker
 
     def get_algo_strategy(self) -> str:
-        return self.config["orders"]["algo"]["strategy"]
+        return self.config.orders.algo.strategy
 
     def get_algo_params(self) -> List[TagValue]:
-        return algo_params_from(self.config["orders"]["algo"]["params"])
+        return algo_params_from(self.config.orders.algo.params)
 
     def get_order_exchange(self) -> str:
-        return self.config["orders"]["exchange"]
+        return self.config.orders.exchange
 
     def do_vix_hedging(
         self,
@@ -1898,7 +1891,7 @@ class PortfolioManager:
         to_print: List[str] = []
 
         def inner_handler() -> None:
-            if not self.config["vix_call_hedge"]["enabled"]:
+            if not self.config.vix_call_hedge.enabled:
                 to_print.append(
                     "[red]🛑 VIX call hedging not enabled, skipping",
                 )
@@ -1907,20 +1900,20 @@ class PortfolioManager:
             def vix_calls_should_be_closed() -> (
                 tuple[bool, Optional[Ticker], Optional[float]]
             ):
-                if "close_hedges_when_vix_exceeds" in self.config["vix_call_hedge"]:
+                if self.config.vix_call_hedge.close_hedges_when_vix_exceeds:
                     vix_contract = Index("VIX", "CBOE", "USD")
                     self.ib.qualifyContracts(vix_contract)
                     self.ib.reqMktData(vix_contract)
                     vix_ticker = self.get_ticker_for(vix_contract)
-                    close_hedges_when_vix_exceeds = self.config["vix_call_hedge"][
-                        "close_hedges_when_vix_exceeds"
-                    ]
+                    close_hedges_when_vix_exceeds = (
+                        self.config.vix_call_hedge.close_hedges_when_vix_exceeds
+                    )
                     if vix_ticker.marketPrice() > close_hedges_when_vix_exceeds:
                         return (True, vix_ticker, close_hedges_when_vix_exceeds)
                     return (False, vix_ticker, close_hedges_when_vix_exceeds)
                 return (False, None, None)
 
-            ignore_dte = self.config["vix_call_hedge"]["ignore_dte"]
+            ignore_dte = self.config.vix_call_hedge.ignore_dte
 
             with console.status(
                 "[bold blue_violet]Checking on our VIX call hedge..."
@@ -2004,29 +1997,27 @@ class PortfolioManager:
 
                         weight = 0.0
 
-                        for allocation in self.config["vix_call_hedge"]["allocation"]:
+                        for allocation in self.config.vix_call_hedge.allocation:
                             if (
-                                "lower_bound" in allocation
-                                and "upper_bound" in allocation
-                                and allocation["lower_bound"]
+                                allocation.lower_bound
+                                and allocation.upper_bound
+                                and allocation.lower_bound
                                 <= vixmo_ticker.marketPrice()
-                                < allocation["upper_bound"]
+                                < allocation.upper_bound
                             ):
-                                weight = allocation["weight"]
+                                weight = allocation.weight
                                 break
                             elif (
-                                "lower_bound" in allocation
-                                and allocation["lower_bound"]
-                                <= vixmo_ticker.marketPrice()
+                                allocation.lower_bound
+                                and allocation.lower_bound <= vixmo_ticker.marketPrice()
                             ):
-                                weight = allocation["weight"]
+                                weight = allocation.weight
                                 break
                             elif (
-                                "upper_bound" in allocation
-                                and vixmo_ticker.marketPrice()
-                                < allocation["upper_bound"]
+                                allocation.upper_bound
+                                and vixmo_ticker.marketPrice() < allocation.upper_bound
                             ):
-                                weight = allocation["weight"]
+                                weight = allocation.weight
                                 break
 
                         to_print.append(
@@ -2036,8 +2027,8 @@ class PortfolioManager:
                         allocation_amount = (
                             float(account_summary["NetLiquidation"].value) * weight
                         )
-                        delta = self.config["vix_call_hedge"]["delta"]
-                        target_dte = self.config["vix_call_hedge"]["target_dte"]
+                        delta = self.config.vix_call_hedge.delta
+                        target_dte = self.config.vix_call_hedge.target_dte
                         if weight > 0:
                             to_print.append(
                                 f"[green]Current VIXMO spot price prescribes an allocation of up to "
@@ -2131,37 +2122,32 @@ class PortfolioManager:
         to_print: List[str] = []
 
         def inner_handler() -> None:
-            if not self.config["cash_management"]["enabled"]:
+            if not self.config.cash_management.enabled:
                 to_print.append(
                     "[red]🛑 Cash management not enabled, skipping",
                 )
                 return None
 
-            target_cash_balance = self.config["cash_management"]["target_cash_balance"]
-            buy_threshold = self.config["cash_management"]["buy_threshold"]
-            sell_threshold = self.config["cash_management"]["sell_threshold"]
+            target_cash_balance = self.config.cash_management.target_cash_balance
+            buy_threshold = self.config.cash_management.buy_threshold
+            sell_threshold = self.config.cash_management.sell_threshold
             cash_balance = math.floor(float(account_summary["TotalCashValue"].value))
             pending_balance = self.calc_pending_cash_balance()
 
             try:
 
                 def make_order() -> tuple[Optional[Ticker], Optional[LimitOrder]]:
-                    symbol = self.config["cash_management"]["cash_fund"]
-                    primary_exchange = self.config["cash_management"].get(
-                        "primary_exchange", ""
-                    )
-                    order_exchange = (
-                        self.config["cash_management"]["orders"]["exchange"]
-                        if "orders" in self.config["cash_management"]
-                        else None
-                    )
+                    symbol = self.config.cash_management.cash_fund
+                    primary_exchange = self.config.cash_management.primary_exchange
+                    order_exchange = self.config.cash_management.orders.exchange
                     ticker = self.get_ticker_for_stock(
                         symbol, primary_exchange, order_exchange
                     )
+
                     algo = (
-                        self.config["cash_management"]["orders"]["algo"]
-                        if "orders" in self.config["cash_management"]
-                        else self.config["orders"]["algo"]
+                        self.config.cash_management.orders.algo
+                        if self.config.cash_management.orders
+                        else self.config.orders.algo
                     )
 
                     amount = cash_balance + pending_balance - target_cash_balance
@@ -2217,8 +2203,8 @@ class PortfolioManager:
                         "BUY" if qty > 0 else "SELL",
                         abs(qty),
                         round(price, 2),
-                        algoStrategy=algo["strategy"],
-                        algoParams=algo_params_from(algo["params"]),
+                        algoStrategy=algo.strategy,
+                        algoParams=algo_params_from(algo.params),
                         tif="DAY",
                         account=self.account_number,
                         transmit=True,
@@ -2300,10 +2286,8 @@ class PortfolioManager:
         if (
             all(
                 [
-                    not self.config["symbols"][symbol].get(
-                        "adjust_price_after_delay", False
-                    )
-                    for symbol in self.config["symbols"]
+                    not self.config.symbols[symbol].adjust_price_after_delay
+                    for symbol in self.config.symbols
                 ]
             )
             or len(self.trades) == 0
@@ -2313,8 +2297,8 @@ class PortfolioManager:
         import random
 
         delay = random.randrange(
-            self.config["orders"]["price_update_delay"][0],
-            self.config["orders"]["price_update_delay"][1],
+            self.config.orders.price_update_delay[0],
+            self.config.orders.price_update_delay[1],
         )
         for _ in track(
             range(delay),
@@ -2331,10 +2315,8 @@ class PortfolioManager:
             (idx, trade)
             for idx, trade in enumerate(self.trades)
             if trade
-            and trade.contract.symbol in self.config["symbols"]
-            and self.config["symbols"][trade.contract.symbol].get(
-                "adjust_price_after_delay", False
-            )
+            and trade.contract.symbol in self.config.symbols
+            and self.config.symbols[trade.contract.symbol].adjust_price_after_delay
             and not trade.isDone()
         ]
         for idx, trade in unfilled:
@@ -2432,7 +2414,7 @@ class PortfolioManager:
             hist_prices = self.ib.reqHistoricalData(
                 ticker.contract,
                 "",
-                self.config["constants"]["daily_stddev_window"],
+                self.config.constants.daily_stddev_window,
                 "1 day",
                 "TRADES",
                 True,

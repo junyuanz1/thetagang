@@ -83,9 +83,7 @@ class OptionChains:
 @dataclass
 class AlgoSettings:
     strategy: str = Field("Adaptive")
-    params: List[List[str]] = field(
-        default_factory=lambda: [["adaptivePriority", "Patient"]]
-    )
+    params: List[str] = field(default_factory=lambda: ["adaptivePriority", "Patient"])
 
 
 @dataclass
@@ -93,9 +91,9 @@ class Orders(DisplayMixin):
     minimum_credit: float = Field(0.0, ge=0.0)
     exchange: str = Field("SMART")
     algo: AlgoSettings = Field(
-        AlgoSettings("Adaptive", [["adaptivePriority", "Patient"]])
+        AlgoSettings("Adaptive", ["adaptivePriority", "Patient"])
     )
-    price_update_delay: Optional[List[int]] = field(default_factory=lambda: [30, 60])
+    price_update_delay: List[int] = field(default_factory=lambda: [30, 60])
 
     def add_to_table(self, table: Table, section: str = "") -> None:
         table.add_section()
@@ -189,7 +187,7 @@ class CashManagement(DisplayMixin):
     target_cash_balance: int = Field(0, ge=0)
     buy_threshold: int = Field(10000, ge=0)
     sell_threshold: int = Field(10000, ge=0)
-    primary_exchange: Optional[str] = None
+    primary_exchange: str = Field("")
     orders: Orders = field(default_factory=Orders)
 
     def add_to_table(self, table: Table, section: str = "") -> None:
@@ -206,7 +204,7 @@ class CashManagement(DisplayMixin):
 class Allocation:
     lower_bound: Optional[float] = Field(None, ge=0.0)
     upper_bound: Optional[float] = Field(None, ge=0.0)
-    weight: Optional[float] = Field(None, ge=0.0)
+    weight: float = Field(..., ge=0.0)
 
 
 @dataclass
@@ -430,9 +428,8 @@ class SymbolConfig:
         strike_limit: Optional[float] = Field(None, gt=0)
         write_when: Optional[WriteWhen] = field(default_factory=WriteWhen)
 
-    weight: Optional[float] = Field(None, ge=0, le=1)
-    parts: Optional[int] = Field(None, gt=0)
-    primary_exchange: Optional[str] = Field(None, min_length=1)
+    weight: float = Field(..., ge=0, le=1)
+    primary_exchange: str = Field("", min_length=1)
     delta: Optional[float] = Field(None, ge=0, le=1)
     write_threshold: Optional[float] = Field(None, ge=0, le=1)
     write_threshold_sigma: Optional[float] = Field(None, gt=0)
@@ -441,14 +438,8 @@ class SymbolConfig:
     close_if_unable_to_roll: Optional[bool] = Field(None)
     calls: Optional[CallsConfig] = Field(None)
     puts: Optional[PutsConfig] = Field(None)
-    adjust_price_after_delay: Optional[bool] = Field(None)
+    adjust_price_after_delay: bool = Field(False)
     no_trading: Optional[bool] = Field(None)
-
-    @model_validator(mode="after")
-    def check_weight_or_parts(self) -> Self:
-        if (self.weight is not None) == (self.parts is not None):
-            raise ValueError("Exactly one of weight or parts must be specified")
-        return self
 
 
 @dataclass
@@ -465,7 +456,7 @@ class Config(DisplayMixin):
     roll_when: RollWhen
     target: Target
     symbols: Dict[str, SymbolConfig]
-    constants: Optional[Constants] = None
+    constants: Constants = field(default_factory=Constants)
 
     @model_validator(mode="after")
     def check_symbols(self) -> Self:
