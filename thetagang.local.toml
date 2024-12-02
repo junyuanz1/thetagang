@@ -1,0 +1,208 @@
+[account]
+# number = "U12606128"
+cancel_orders = true
+margin_usage = 0.2
+
+# Market data type (see https://interactivebrokers.github.io/tws-api/market_data_type.html)
+market_data_type = 2
+
+[constants]
+# Refer to `durationString` at
+# https://interactivebrokers.github.io/tws-api/historical_bars.html for details.
+# Valid values include "30 D", "60 D", "6 M", "1 Y", etc.
+daily_stddev_window = "30 D"
+
+[orders]
+exchange = "SMART"
+price_update_delay = [30, 60]
+minimum_credit = 0.05
+# price_strategy = "spread_capture"
+
+  [orders.algo]
+  strategy = "Adaptive"
+  params = [
+    [
+      "adaptivePriority",
+      "Patient",
+    ],
+  ]
+
+[option_chains]
+expirations = 4
+
+# Number of strikes to load from option chains
+strikes = 15
+
+[roll_when]
+pnl = 0.9
+dte     = 15
+min_pnl = 0.9
+close_at_pnl = 0.99
+close_if_unable_to_roll = false
+  [roll_when.calls]
+  itm = false
+
+  always_when_itm = false
+  credit_only = true
+
+  has_excess = true
+  maintain_high_water_mark = true
+
+  [roll_when.puts]
+  itm = false
+  always_when_itm = false
+  credit_only = true
+  has_excess = true
+
+[write_when]
+calculate_net_contracts = false
+
+  [write_when.calls]
+  green = true
+  red   = false
+  cap_factor = 1.0
+  cap_target_floor = 0.0
+  excess_only = false
+
+  [write_when.puts]
+  green = false
+  red   = true
+
+[target]
+dte = 30
+max_dte = 45
+delta = 0.3
+maximum_new_contracts_percent = 0.2
+minimum_open_interest = 5
+
+[symbols]
+  [symbols.TMDX]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = true
+    [symbols.TMDX.puts]
+    delta = 0.4
+    strike_limit = 85.0
+    write_threshold = 0.025
+
+  [symbols.DXCM]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = false
+    [symbols.DXCM.puts]
+    delta = 0.4
+    strike_limit = 78.0
+    write_threshold = 0.025
+  
+  [symbols.NET]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = false
+    [symbols.NET.puts]
+    delta = 0.4
+    strike_limit = 100.0
+    write_threshold = 0.025
+
+  [symbols.MU]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = false
+    [symbols.MU.puts]
+    delta = 0.4
+    strike_limit = 100.0
+    write_threshold = 0.025
+  
+  [symbols.SERV]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = false
+    [symbols.SERV.puts]
+    delta = 0.5
+    strike_limit = 9.0
+    write_threshold = 0.025
+
+  [symbols.ZIM]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = false
+    [symbols.ZIM.puts]
+    delta = 0.4
+    strike_limit = 23.0
+    write_threshold = 0.025
+
+  [symbols.RIVN]
+  parts = 1
+  adjust_price_after_delay = false
+  close_if_unable_to_roll = false
+    [symbols.RIVN.puts]
+    delta = 0.4
+    strike_limit = 12.0
+    # write_threshold = 0.025
+
+[ib_async]
+logfile = './ib_async.log'
+api_response_wait_time = 10
+
+[ibc]
+gateway     = true
+ibcPath     = '/opt/ibc'
+tradingMode = 'live'
+RaiseRequestErrors = false
+ibcIni = '/etc/thetagang/config.ini'
+javaPath = '/opt/java/openjdk/bin'
+
+[watchdog]
+appStartupTime = 30
+appTimeout     = 20
+clientId       = 1
+connectTimeout = 2
+host           = '127.0.0.1'
+port           = 7497
+probeTimeout   = 4
+readonly       = false
+retryDelay     = 2
+
+  [watchdog.probeContract]
+  currency = 'USD'
+  exchange = 'SMART'
+  secType  = 'STK'
+  symbol   = 'SPY'
+
+[vix_call_hedge]
+enabled = false
+delta = 0.30
+target_dte = 30
+# max_dte = 180
+close_hedges_when_vix_exceeds = 50.0
+ignore_dte = 0
+  [[vix_call_hedge.allocation]]
+  upper_bound = 15.0
+  weight      = 10.00
+  [[vix_call_hedge.allocation]]
+  lower_bound = 15.0
+  upper_bound = 30.0
+  weight      = 0.01
+  [[vix_call_hedge.allocation]]
+  lower_bound = 30.0
+  upper_bound = 50.0
+  weight      = 0.005
+  [[vix_call_hedge.allocation]]
+  lower_bound = 50.0
+  weight      = 0.00
+
+[cash_management]
+enabled = false
+cash_fund = "SGOV"
+# primary_exchange = "NYSE"
+target_cash_balance = 0
+buy_threshold = 10000
+sell_threshold = 10000
+
+  [cash_management.orders]
+  exchange = "SMART"
+
+    [cash_management.orders.algo]
+    params = [
+      # ["noTakeLiq", "1"],
+    ]
+    strategy = "Vwap"
