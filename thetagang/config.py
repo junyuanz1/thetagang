@@ -83,7 +83,9 @@ class OptionChains:
 @dataclass
 class AlgoSettings:
     strategy: str = Field("Adaptive")
-    params: List[str] = field(default_factory=lambda: ["adaptivePriority", "Patient"])
+    params: List[List[str]] = field(
+        default_factory=lambda: [["adaptivePriority", "Patient"]]
+    )
 
 
 @dataclass
@@ -91,7 +93,7 @@ class Orders(DisplayMixin):
     minimum_credit: float = Field(0.0, ge=0.0)
     exchange: str = Field("SMART")
     algo: AlgoSettings = Field(
-        AlgoSettings("Adaptive", ["adaptivePriority", "Patient"])
+        AlgoSettings("Adaptive", [["adaptivePriority", "Patient"]])
     )
     price_update_delay: List[int] = field(default_factory=lambda: [30, 60])
 
