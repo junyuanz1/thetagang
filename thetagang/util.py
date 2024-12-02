@@ -350,7 +350,7 @@ def get_write_threshold_perc(
     return 0.0
 
 
-def algo_params_from(params: List[str]) -> List[TagValue]:
+def algo_params_from(params: List[List[str]]) -> List[TagValue]:
     return [TagValue(p[0], p[1]) for p in params]
 
 
@@ -402,7 +402,7 @@ def can_write_when(config: Config, symbol: str, right: str) -> Tuple[bool, bool]
     )
     can_write_when_red = (
         option_config.write_when.red
-        if option_config and option_config.write_when
+        if option_config is not None and option_config.write_when is not None
         else default_config.red
     )
 

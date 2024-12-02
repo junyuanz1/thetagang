@@ -404,12 +404,13 @@ class Target(DisplayMixin):
 
 
 @dataclass
-class SymbolConfig:
-    @dataclass
-    class WriteWhen:
-        green: Optional[bool] = None
-        red: Optional[bool] = None
+class SymbolConfigWriteWhen:
+    green: Optional[bool] = None
+    red: Optional[bool] = None
 
+
+@dataclass
+class SymbolConfig:
     @dataclass
     class CallsConfig:
         cap_factor: Optional[float] = Field(None, ge=0, le=1)
@@ -420,7 +421,9 @@ class SymbolConfig:
         write_threshold_sigma: Optional[float] = Field(None, gt=0)
         strike_limit: Optional[float] = Field(None, gt=0)
         maintain_high_water_mark: Optional[bool] = None
-        write_when: Optional[WriteWhen] = field(default_factory=WriteWhen)
+        write_when: Optional[SymbolConfigWriteWhen] = field(
+            default_factory=SymbolConfigWriteWhen
+        )
 
     @dataclass
     class PutsConfig:
@@ -428,7 +431,9 @@ class SymbolConfig:
         write_threshold: Optional[float] = Field(None, ge=0, le=1)
         write_threshold_sigma: Optional[float] = Field(None, gt=0)
         strike_limit: Optional[float] = Field(None, gt=0)
-        write_when: Optional[WriteWhen] = field(default_factory=WriteWhen)
+        write_when: Optional[SymbolConfigWriteWhen] = field(
+            default_factory=SymbolConfigWriteWhen
+        )
 
     weight: float = Field(..., ge=0, le=1)
     primary_exchange: str = Field("", min_length=1)
