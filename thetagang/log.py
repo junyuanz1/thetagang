@@ -4,7 +4,7 @@ from typing import Any, Coroutine, List, Union
 from annotated_types import T
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import track
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 from rich.table import Table
 from rich.theme import Theme
 
@@ -45,12 +45,18 @@ async def tasks_progress(
 ) -> List[T]:
     results = []
     total_tasks = len(tasks)
-    for task in track(
-        asyncio.as_completed(tasks),
-        description=description,
-        total=total_tasks,
-        show_speed=False,
-    ):
-        result = await task
-        results.append(result)
+
+    progress = Progress(
+        TextColumn("{task.description: <50}"),
+        BarColumn(),
+        TaskProgressColumn(),
+    )
+
+    with progress:
+        progress_task = progress.add_task(description, total=total_tasks)
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
+            results.append(result)
+            progress.advance(progress_task)
+
     return results
