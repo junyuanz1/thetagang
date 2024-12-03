@@ -18,6 +18,8 @@ from ib_async import (
 from rich.console import Console
 from tqdm.asyncio import tqdm_asyncio
 
+import thetagang.log as log
+
 console = Console()
 
 
@@ -194,17 +196,12 @@ class IBKR:
 
     def orderStatusEvent(self, trade: Trade) -> None:
         if "Filled" in trade.orderStatus.status:
-            console.print(
-                f"[green]Order filled, symbol={trade.contract.symbol}",
-            )
+            log.info(f"Order filled, symbol={trade.contract.symbol}")
         if "Cancelled" in trade.orderStatus.status:
-            console.print(
-                f"[red]Order cancelled, symbol={trade.contract.symbol} log={trade.log}",
-            )
+            log.warning(f"Order cancelled, symbol={trade.contract.symbol}")
         else:
-            console.print(
-                f"[bright_green]Order updated, symbol={trade.contract.symbol}"
-                f" status={trade.orderStatus.status}",
+            log.info(
+                f"Order updated, symbol={trade.contract.symbol} status={trade.orderStatus.status}"
             )
 
     async def __market_data_streaming_handler__(
