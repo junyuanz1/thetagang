@@ -119,7 +119,7 @@ class IBKR:
             )
 
         tasks = [get_ticker_task(contract) for contract in contracts]
-        tickers = await log.tasks_progress(
+        tickers = await log.track_async(
             tasks,
             description="Gathering tickers, waiting for required & optional fields...",
         )
@@ -263,7 +263,7 @@ class IBKR:
             )
             for trade in trades
         ]
-        await log.tasks_progress(tasks, "Waiting for orders to be submitted...")
+        await log.track_async(tasks, "Waiting for orders to be submitted...")
 
     async def wait_for_orders_complete(
         self, trades: List[Trade], timetout: int = 60
@@ -276,7 +276,7 @@ class IBKR:
             )
             for trade in trades
         ]
-        await log.tasks_progress(tasks, description="Waiting for orders to complete...")
+        await log.track_async(tasks, description="Waiting for orders to complete...")
 
     async def __trade_wait_for_condition__(
         self, trade: Trade, condition: Callable[[Trade], bool], timeout: float

@@ -22,7 +22,6 @@ from rich import box
 from rich.console import Group
 from rich.panel import Panel
 from rich.pretty import Pretty
-from rich.progress import track
 from rich.table import Table
 
 from thetagang import log
@@ -461,7 +460,7 @@ class PortfolioManager:
             for _, positions in portfolio_positions.items()
             for position in positions
         ]
-        await log.tasks_progress(tasks, "Loading portfolio positions...")
+        await log.track_async(tasks, "Loading portfolio positions...")
 
         table = Table(
             title="Portfolio positions",
@@ -633,7 +632,7 @@ class PortfolioManager:
                 closeable_puts.append(put)
 
         tasks = [check_put_can_be_rolled_task(put, table) for put in puts]
-        await log.tasks_progress(tasks, "Checking rollable/closeable puts...")
+        await log.track_async(tasks, "Checking rollable/closeable puts...")
 
         total_rollable_puts = math.floor(sum([abs(p.position) for p in rollable_puts]))
         total_closeable_puts = math.floor(
@@ -667,7 +666,9 @@ class PortfolioManager:
         table.add_column("Action")
         table.add_column("Detail")
 
-        for c in track(calls, description="Checking rollable/closeable calls..."):
+        for c in log.track(
+            calls, description="Checking rollable/closeable calls...", total=len(calls)
+        ):
             if self.call_can_be_rolled(c, table):
                 rollable_calls.append(c)
             elif self.call_can_be_closed(c, table):
@@ -851,9 +852,7 @@ class PortfolioManager:
                 )
 
         tasks = [update_to_write_task(symbol) for symbol in portfolio_positions]
-        await log.tasks_progress(
-            tasks, description="Checking for uncovered positions..."
-        )
+        await log.track_async(tasks, description="Checking for uncovered positions...")
 
         return (call_actions_table, to_write)
 
@@ -1155,7 +1154,7 @@ class PortfolioManager:
             calculate_target_position_task(symbol)
             for symbol in self.config["symbols"].keys()
         ]
-        await log.tasks_progress(tasks, description="Calculating target positions...")
+        await log.track_async(tasks, description="Calculating target positions...")
 
         to_write: List[Tuple[str, str, int, Optional[float]]] = []
 
@@ -1211,7 +1210,7 @@ class PortfolioManager:
             update_to_write_task(symbol, target)
             for symbol, target in target_additional_quantity.items()
         ]
-        await log.tasks_progress(tasks, description="Generating positions summary...")
+        await log.track_async(tasks, description="Generating positions summary...")
 
         return (positions_summary_table, put_actions_table, to_write)
 
@@ -1630,9 +1629,10 @@ class PortfolioManager:
         # Filter out invalid price
         tickers = [
             ticker
-            for ticker in track(
+            for ticker in log.track(
                 tickers,
                 description="Filtering invalid prices...",
+                total=len(tickers),
             )
             if price_is_valid(ticker)
         ]
@@ -1640,7 +1640,9 @@ class PortfolioManager:
         # Filter out invalid greeks
         new_tickers = []
         delta_reject_tickers = []
-        for ticker in track(tickers, description="Filtering invalid deltas..."):
+        for ticker in log.track(
+            tickers, description="Filtering invalid deltas...", total=len(tickers)
+        ):
             if delta_is_valid(ticker):
                 new_tickers.append(ticker)
             else:
@@ -1655,9 +1657,10 @@ class PortfolioManager:
             if minimum_open_interest > 0:
                 tickers = [
                     ticker
-                    for ticker in track(
+                    for ticker in log.track(
                         tickers,
                         description=f"Filtering by open interests with delta_ord_desc: {delta_ord_desc}...",
+                        total=len(tickers),
                     )
                     if open_interest_is_valid(ticker, minimum_open_interest)
                 ]
