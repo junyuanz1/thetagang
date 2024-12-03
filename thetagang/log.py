@@ -44,10 +44,12 @@ async def tasks_progress(
     tasks: List[Coroutine[Any, Any, T]], description: str
 ) -> List[T]:
     results = []
+    total_tasks = len(tasks)
     for task in track(
         asyncio.as_completed(tasks),
         description=description,
-        total=len(tasks),
+        total=total_tasks,
+        show_speed=False,
     ):
         result = await task
         results.append(result)

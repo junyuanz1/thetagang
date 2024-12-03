@@ -1239,7 +1239,8 @@ class PortfolioManager:
         )
 
     async def close_positions(self, right: str, positions: List[PortfolioItem]) -> None:
-        async def close_position_task(position: PortfolioItem) -> None:
+        log.notice(f"Close {right} positions...")
+        for position in positions:
             try:
                 position.contract.exchange = self.get_order_exchange()
                 ticker = await self.ibkr.get_ticker_for_contract(position.contract)
@@ -1272,9 +1273,7 @@ class PortfolioManager:
                 log.error(
                     "Error occurred when trying to close position. Continuing anyway..."
                 )
-
-        tasks = [close_position_task(position) for position in positions]
-        await log.tasks_progress(tasks, description=f"Close {right} positions...")
+                continue
 
     async def roll_positions(
         self,
@@ -1285,7 +1284,9 @@ class PortfolioManager:
     ) -> List[PortfolioItem]:
         closeable_positions: List[PortfolioItem] = []
 
-        async def row_position_task(position: PortfolioItem) -> None:
+        log.notice(f"Rolling {right} positions...")
+
+        for position in positions:
             try:
                 symbol = position.contract.symbol
 
@@ -1454,17 +1455,17 @@ class PortfolioManager:
                         f"Unable to find a suitable contract to roll to for {position.contract.localSymbol}. Closing position instead..."
                     )
                     closeable_positions.append(position)
+                    continue
                 else:
                     log.error(
                         "Error occurred when trying to roll position. Continuing anyway..."
                     )
+                    continue
             except RuntimeError:
                 log.error(
                     "Error occurred when trying to roll position. Continuing anyway..."
                 )
-
-        tasks = [row_position_task(position) for position in positions]
-        await log.tasks_progress(tasks, description=f"Rolling {right} positions...")
+                continue
 
         return closeable_positions
 
@@ -2155,7 +2156,7 @@ class PortfolioManager:
             and not trade.isDone()
         ]
 
-        async def generate_order_midprice_task(idx: int, trade: Trade) -> None:
+        for idx, trade in unfilled:
             try:
                 ticker = await self.ibkr.get_ticker_for_contract(
                     trade.contract,
@@ -2210,14 +2211,13 @@ class PortfolioManager:
 
                     # put the trade back from whence it came
                     self.trades[idx] = self.ibkr.place_order(contract, order)
+
                     log.info(f"Order updated, order={self.trades[idx].order}")
             except (RuntimeError, RequiredFieldValidationError):
                 log.error(
                     "Couldn't generate midpoint price for {trade.contract}, skipping"
                 )
-
-        tasks = [generate_order_midprice_task(idx, trade) for idx, trade in unfilled]
-        await log.tasks_progress(tasks, "Adjusting prices...")
+                continue
 
     async def get_write_threshold(
         self, ticker: Ticker, right: str
