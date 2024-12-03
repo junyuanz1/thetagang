@@ -22,9 +22,8 @@ from rich import box
 from rich.console import Group
 from rich.panel import Panel
 from rich.pretty import Pretty
+from rich.progress import track
 from rich.table import Table
-from tqdm import tqdm
-from tqdm.asyncio import tqdm_asyncio
 
 from thetagang import log
 from thetagang.fmt import dfmt, ffmt, ifmt, pfmt
@@ -462,7 +461,7 @@ class PortfolioManager:
             for _, positions in portfolio_positions.items()
             for position in positions
         ]
-        await tqdm_asyncio.gather(*tasks, desc="Loading portfolio positions...")
+        await log.tasks_progress(tasks, "Loading portfolio positions...")
 
         table = Table(
             title="Portfolio positions",
@@ -634,7 +633,7 @@ class PortfolioManager:
                 closeable_puts.append(put)
 
         tasks = [check_put_can_be_rolled_task(put, table) for put in puts]
-        await tqdm_asyncio.gather(*tasks, desc="Checking rollable/closeable puts...")
+        await log.tasks_progress(tasks, "Checking rollable/closeable puts...")
 
         total_rollable_puts = math.floor(sum([abs(p.position) for p in rollable_puts]))
         total_closeable_puts = math.floor(
@@ -668,7 +667,7 @@ class PortfolioManager:
         table.add_column("Action")
         table.add_column("Detail")
 
-        for c in tqdm(calls, desc="Checking rollable/closeable calls..."):
+        for c in track(calls, description="Checking rollable/closeable calls..."):
             if self.call_can_be_rolled(c, table):
                 rollable_calls.append(c)
             elif self.call_can_be_closed(c, table):
@@ -852,7 +851,9 @@ class PortfolioManager:
                 )
 
         tasks = [update_to_write_task(symbol) for symbol in portfolio_positions]
-        await tqdm_asyncio.gather(*tasks, desc="Checking for uncovered positions...")
+        await log.tasks_progress(
+            tasks, description="Checking for uncovered positions..."
+        )
 
         return (call_actions_table, to_write)
 
@@ -1154,7 +1155,7 @@ class PortfolioManager:
             calculate_target_position_task(symbol)
             for symbol in self.config["symbols"].keys()
         ]
-        await tqdm_asyncio.gather(*tasks, desc="Calculating target positions...")
+        await log.tasks_progress(tasks, description="Calculating target positions...")
 
         to_write: List[Tuple[str, str, int, Optional[float]]] = []
 
@@ -1210,7 +1211,7 @@ class PortfolioManager:
             update_to_write_task(symbol, target)
             for symbol, target in target_additional_quantity.items()
         ]
-        await tqdm_asyncio.gather(*tasks, desc="Generating positions summary...")
+        await log.tasks_progress(tasks, description="Generating positions summary...")
 
         return (positions_summary_table, put_actions_table, to_write)
 
@@ -1273,7 +1274,7 @@ class PortfolioManager:
                 )
 
         tasks = [close_position_task(position) for position in positions]
-        await tqdm_asyncio.gather(*tasks, desc=f"Close {right} positions...")
+        await log.tasks_progress(tasks, description=f"Close {right} positions...")
 
     async def roll_positions(
         self,
@@ -1463,7 +1464,7 @@ class PortfolioManager:
                 )
 
         tasks = [row_position_task(position) for position in positions]
-        await tqdm_asyncio.gather(*tasks, desc=f"Rolling {right} positions...")
+        await log.tasks_progress(tasks, description=f"Rolling {right} positions...")
 
         return closeable_positions
 
@@ -1628,9 +1629,9 @@ class PortfolioManager:
         # Filter out invalid price
         tickers = [
             ticker
-            for ticker in tqdm(
+            for ticker in track(
                 tickers,
-                desc="Filtering invalid prices...",
+                description="Filtering invalid prices...",
             )
             if price_is_valid(ticker)
         ]
@@ -1638,7 +1639,7 @@ class PortfolioManager:
         # Filter out invalid greeks
         new_tickers = []
         delta_reject_tickers = []
-        for ticker in tqdm(tickers, desc="Filtering invalid deltas..."):
+        for ticker in track(tickers, description="Filtering invalid deltas..."):
             if delta_is_valid(ticker):
                 new_tickers.append(ticker)
             else:
@@ -1653,9 +1654,9 @@ class PortfolioManager:
             if minimum_open_interest > 0:
                 tickers = [
                     ticker
-                    for ticker in tqdm(
+                    for ticker in track(
                         tickers,
-                        desc=f"Filtering by open interests with delta_ord_desc: {delta_ord_desc}...",
+                        description=f"Filtering by open interests with delta_ord_desc: {delta_ord_desc}...",
                     )
                     if open_interest_is_valid(ticker, minimum_open_interest)
                 ]
@@ -2216,7 +2217,7 @@ class PortfolioManager:
                 )
 
         tasks = [generate_order_midprice_task(idx, trade) for idx, trade in unfilled]
-        await tqdm_asyncio.gather(*tasks, desc="Adjusting prices...")
+        await log.tasks_progress(tasks, "Adjusting prices...")
 
     async def get_write_threshold(
         self, ticker: Ticker, right: str

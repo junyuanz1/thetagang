@@ -16,7 +16,6 @@ from ib_async import (
     util,
 )
 from rich.console import Console
-from tqdm.asyncio import tqdm_asyncio
 
 import thetagang.log as log
 
@@ -120,8 +119,9 @@ class IBKR:
             )
 
         tasks = [get_ticker_task(contract) for contract in contracts]
-        tickers = await tqdm_asyncio.gather(
-            *tasks, desc="Gathering tickers, waiting for required & optional fields..."
+        tickers = await log.tasks_progress(
+            tasks,
+            description="Gathering tickers, waiting for required & optional fields...",
         )
         return tickers
 
@@ -263,7 +263,7 @@ class IBKR:
             )
             for trade in trades
         ]
-        await tqdm_asyncio.gather(*tasks, desc="Waiting for orders to be submitted...")
+        await log.tasks_progress(tasks, "Waiting for orders to be submitted...")
 
     async def wait_for_orders_complete(
         self, trades: List[Trade], timetout: int = 60
@@ -276,7 +276,7 @@ class IBKR:
             )
             for trade in trades
         ]
-        await tqdm_asyncio.gather(*tasks, desc="Waiting for orders to complete...")
+        await log.tasks_progress(tasks, description="Waiting for orders to complete...")
 
     async def __trade_wait_for_condition__(
         self, trade: Trade, condition: Callable[[Trade], bool], timeout: float
