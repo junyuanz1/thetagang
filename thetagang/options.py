@@ -171,12 +171,12 @@ async def find_eligible_contracts(
     tickers = _open_interest_is_valid_sort_by_delta(
         underlying, list(tickers), right, minimum_open_interest, True
     )
-    delta_reject_tickers = _open_interest_is_valid_sort_by_delta(
-        underlying, list(delta_reject_tickers), right, minimum_open_interest, False
-    )
 
     # some final processing to ensure we have a valid contract
     if len(tickers) == 0 and not math.isclose(minimum_price, 0.0):
+        log.warning(
+            f"{underlying.symbol}: No valid contracts found with valid open interest, falling back to search for contracts with higher delta..."
+        )
         # if we arrive here, it means that 1) we expect to roll for a
         # credit only, but 2) we didn't find any suitable contracts,
         # most likely because we can't roll out and up/down to the
@@ -184,7 +184,9 @@ async def find_eligible_contracts(
         #
         # because of this, we'll allow rolling to a less-than-optimal
         # strike, provided it's still a credit
-        tickers = delta_reject_tickers
+        tickers = _open_interest_is_valid_sort_by_delta(
+            underlying, list(delta_reject_tickers), right, minimum_open_interest, False
+        )
 
     if len(tickers) < 1:
         # if there are _still_ no tickers remaining, there's nothing
