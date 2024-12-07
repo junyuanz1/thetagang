@@ -1,5 +1,4 @@
 import math
-from datetime import date, datetime
 from typing import List, Optional, Tuple
 
 from ib_async import Contract, Option, Ticker, util
@@ -15,6 +14,7 @@ from thetagang.util import (
     get_target_delta,
     get_target_dte,
     midpoint_or_market_price,
+    option_dte,
 )
 
 
@@ -22,18 +22,6 @@ class NoValidContractsError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(self.message)
-
-
-def contract_date_to_datetime(expiration: str) -> datetime:
-    if len(expiration) == 8:
-        return datetime.strptime(expiration, "%Y%m%d")
-    else:
-        return datetime.strptime(expiration, "%Y%m")
-
-
-def option_dte(expiration: str) -> int:
-    dte = contract_date_to_datetime(expiration).date() - date.today()
-    return dte.days
 
 
 async def find_eligible_contracts(

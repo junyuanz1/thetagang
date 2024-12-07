@@ -1,4 +1,5 @@
 import math
+from datetime import date, datetime
 from operator import itemgetter
 from typing import Dict, List, Optional, Tuple
 
@@ -17,8 +18,19 @@ from thetagang.config import (
     VIXCallHedgeConfig,
     WriteWhenConfig,
 )
-from thetagang.options import option_dte
 from thetagang.types import OptionRight
+
+
+def contract_date_to_datetime(expiration: str) -> datetime:
+    if len(expiration) == 8:
+        return datetime.strptime(expiration, "%Y%m%d")
+    else:
+        return datetime.strptime(expiration, "%Y%m")
+
+
+def option_dte(expiration: str) -> int:
+    dte = contract_date_to_datetime(expiration).date() - date.today()
+    return dte.days
 
 
 def account_summary_to_dict(
