@@ -3,7 +3,7 @@ import math
 import random
 import sys
 from asyncio import Future
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from ib_async import (
@@ -20,12 +20,13 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 
-from thetagang import log
+from thetagang import log, options
 from thetagang.config import Config
 from thetagang.fmt import dfmt, ffmt, ifmt, pfmt
 from thetagang.ibkr import IBKR, RequiredFieldValidationError, TickerField
 from thetagang.orders import Orders
 from thetagang.trades import Trades
+from thetagang.types import OptionRight
 from thetagang.util import (
     account_summary_to_dict,
     algo_params_from,
@@ -36,13 +37,10 @@ from thetagang.util import (
     count_short_option_positions,
     get_higher_price,
     get_lower_price,
-    get_max_dte_for,
     get_minimum_credit,
     get_short_positions,
     get_strike_limit,
     get_target_calls,
-    get_target_delta,
-    get_target_dte,
     get_write_threshold_perc,
     get_write_threshold_sigma,
     maintain_high_water_mark,
@@ -55,17 +53,11 @@ from thetagang.util import (
     would_increase_spread,
 )
 
-from .options import option_dte
+from .options import NoValidContractsError, option_dte
 
 # Turn off some of the more annoying logging output from ib_async
 logging.getLogger("ib_async.ib").setLevel(logging.ERROR)
 logging.getLogger("ib_async.wrapper").setLevel(logging.CRITICAL)
-
-
-class NoValidContractsError(Exception):
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(self.message)
 
 
 class PortfolioManager:
@@ -95,15 +87,15 @@ class PortfolioManager:
     def get_short_calls(
         self, portfolio_positions: Dict[str, List[PortfolioItem]]
     ) -> List[PortfolioItem]:
-        return self.get_short_contracts(portfolio_positions, "C")
+        return self.get_short_contracts(portfolio_positions, OptionRight.CALL)
 
     def get_short_puts(
         self, portfolio_positions: Dict[str, List[PortfolioItem]]
     ) -> List[PortfolioItem]:
-        return self.get_short_contracts(portfolio_positions, "P")
+        return self.get_short_contracts(portfolio_positions, OptionRight.PUT)
 
     def get_short_contracts(
-        self, portfolio_positions: Dict[str, List[PortfolioItem]], right: str
+        self, portfolio_positions: Dict[str, List[PortfolioItem]], right: OptionRight
     ) -> List[PortfolioItem]:
         ret: List[PortfolioItem] = []
         for symbol in portfolio_positions:
@@ -415,13 +407,13 @@ class PortfolioManager:
 
         async def is_itm(pos: PortfolioItem) -> str:
             if isinstance(pos.contract, Option):
-                if pos.contract.right.startswith("C") and await self.call_is_itm(
-                    pos.contract
-                ):
+                if pos.contract.right.startswith(
+                    OptionRight.CALL.value
+                ) and await self.call_is_itm(pos.contract):
                     return "✔️"
-                if pos.contract.right.startswith("P") and await self.put_is_itm(
-                    pos.contract
-                ):
+                if pos.contract.right.startswith(
+                    OptionRight.PUT.value
+                ) and await self.put_is_itm(pos.contract):
                     return "✔️"
             return ""
 
@@ -732,9 +724,13 @@ class PortfolioManager:
                 # skip positions we don't care about
                 return
             short_call_count = (
-                calculate_net_short_positions(portfolio_positions[symbol], "C")
+                calculate_net_short_positions(
+                    portfolio_positions[symbol], OptionRight.CALL
+                )
                 if calculate_net_contracts
-                else count_short_option_positions(portfolio_positions[symbol], "C")
+                else count_short_option_positions(
+                    portfolio_positions[symbol], OptionRight.CALL
+                )
             )
             stock_count = math.floor(
                 sum(
@@ -748,7 +744,7 @@ class PortfolioManager:
             strike_limit = math.ceil(
                 max(
                     [
-                        get_strike_limit(self.config, symbol, "C") or 0,
+                        get_strike_limit(self.config, symbol, OptionRight.CALL) or 0,
                     ]
                     + [
                         p.averageCost or 0
@@ -802,7 +798,9 @@ class PortfolioManager:
                     return False
 
                 (can_write_when_green, can_write_when_red) = can_write_when(
-                    self.config.write_when, self.config.symbol_config(symbol), "C"
+                    self.config.write_when,
+                    self.config.symbol_config(symbol),
+                    OptionRight.CALL,
                 )
 
                 if not can_write_when_green and ticker.marketPrice() > ticker.close:
@@ -821,7 +819,7 @@ class PortfolioManager:
                     return False
 
                 (write_threshold, absolute_daily_change) = (
-                    await self.get_write_threshold(ticker, "C")
+                    await self.get_write_threshold(ticker, OptionRight.CALL)
                 )
                 if absolute_daily_change < write_threshold:
                     call_actions_table.add_row(
@@ -863,16 +861,18 @@ class PortfolioManager:
     async def write_calls(self, calls: List[Any]) -> None:
         for symbol, primary_exchange, quantity, strike_limit in calls:
             try:
-                sell_ticker = await self.find_eligible_contracts(
-                    Stock(
+                sell_ticker = await options.find_eligible_contracts(
+                    ibkr=self.ibkr,
+                    config=self.config,
+                    underlying=Stock(
                         symbol,
-                        self.get_order_exchange(),
+                        self.config.get_order_exchange(),
                         currency="USD",
                         primaryExchange=primary_exchange,
                     ),
-                    "C",
-                    strike_limit,
-                    minimum_price=lambda: get_minimum_credit(self.config.orders),
+                    right=OptionRight.CALL,
+                    strike_limit=strike_limit,
+                    minimum_price=get_minimum_credit(self.config.orders),
                 )
             except (RuntimeError, NoValidContractsError):
                 log.error(
@@ -899,16 +899,18 @@ class PortfolioManager:
     ) -> None:
         for symbol, primary_exchange, quantity, strike_limit in puts:
             try:
-                sell_ticker = await self.find_eligible_contracts(
-                    Stock(
+                sell_ticker = await options.find_eligible_contracts(
+                    ibkr=self.ibkr,
+                    config=self.config,
+                    underlying=Stock(
                         symbol,
-                        self.get_order_exchange(),
+                        self.config.get_order_exchange(),
                         currency="USD",
                         primaryExchange=primary_exchange,
                     ),
-                    "P",
-                    strike_limit,
-                    minimum_price=lambda: get_minimum_credit(self.config.orders),
+                    right=OptionRight.PUT,
+                    strike_limit=strike_limit,
+                    minimum_price=get_minimum_credit(self.config.orders),
                 )
             except (RuntimeError, NoValidContractsError):
                 log.error(
@@ -1015,37 +1017,37 @@ class PortfolioManager:
             if symbol in portfolio_positions:
                 # Current number of puts
                 net_short_put_count = short_put_count = count_short_option_positions(
-                    portfolio_positions[symbol], "P"
+                    portfolio_positions[symbol], OptionRight.PUT
                 )
                 short_put_avg_strike = weighted_avg_short_strike(
-                    portfolio_positions[symbol], "P"
+                    portfolio_positions[symbol], OptionRight.PUT
                 )
                 long_put_count = count_long_option_positions(
-                    portfolio_positions[symbol], "P"
+                    portfolio_positions[symbol], OptionRight.PUT
                 )
                 long_put_avg_strike = weighted_avg_long_strike(
-                    portfolio_positions[symbol], "P"
+                    portfolio_positions[symbol], OptionRight.PUT
                 )
                 # Current number of calls
                 net_short_call_count = short_call_count = count_short_option_positions(
-                    portfolio_positions[symbol], "C"
+                    portfolio_positions[symbol], OptionRight.CALL
                 )
                 short_call_avg_strike = weighted_avg_short_strike(
-                    portfolio_positions[symbol], "C"
+                    portfolio_positions[symbol], OptionRight.CALL
                 )
                 long_call_count = count_long_option_positions(
-                    portfolio_positions[symbol], "C"
+                    portfolio_positions[symbol], OptionRight.CALL
                 )
                 long_call_avg_strike = weighted_avg_long_strike(
-                    portfolio_positions[symbol], "C"
+                    portfolio_positions[symbol], OptionRight.CALL
                 )
 
                 if calculate_net_contracts:
                     net_short_put_count = calculate_net_short_positions(
-                        portfolio_positions[symbol], "P"
+                        portfolio_positions[symbol], OptionRight.PUT
                     )
                     net_short_call_count = calculate_net_short_positions(
-                        portfolio_positions[symbol], "C"
+                        portfolio_positions[symbol], OptionRight.CALL
                     )
             else:
                 net_short_put_count = short_put_count = long_put_count = 0
@@ -1117,7 +1119,9 @@ class PortfolioManager:
                     return False
 
                 (can_write_when_green, can_write_when_red) = can_write_when(
-                    self.config.write_when, self.config.symbol_config(symbol), "P"
+                    self.config.write_when,
+                    self.config.symbol_config(symbol),
+                    OptionRight.PUT,
                 )
 
                 if not can_write_when_green and ticker.marketPrice() > ticker.close:
@@ -1136,7 +1140,7 @@ class PortfolioManager:
                     return False
 
                 (write_threshold, absolute_daily_change) = (
-                    await self.get_write_threshold(ticker, "P")
+                    await self.get_write_threshold(ticker, OptionRight.PUT)
                 )
                 if absolute_daily_change < write_threshold:
                     put_actions_table.add_row(
@@ -1178,7 +1182,9 @@ class PortfolioManager:
                 )
                 puts_to_write = min([additional_quantity, maximum_new_contracts])
                 if puts_to_write > 0:
-                    strike_limit = get_strike_limit(self.config, symbol, "P")
+                    strike_limit = get_strike_limit(
+                        self.config, symbol, OptionRight.PUT
+                    )
                     if strike_limit:
                         put_actions_table.add_row(
                             symbol,
@@ -1219,17 +1225,17 @@ class PortfolioManager:
         return (positions_summary_table, put_actions_table, to_write)
 
     async def close_puts(self, puts: List[PortfolioItem]) -> None:
-        return await self.close_positions("P", puts)
+        return await self.close_positions(OptionRight.PUT, puts)
 
     async def roll_puts(
         self,
         puts: List[PortfolioItem],
         account_summary: Dict[str, AccountValue],
     ) -> List[PortfolioItem]:
-        return await self.roll_positions(puts, "P", account_summary)
+        return await self.roll_positions(puts, OptionRight.PUT, account_summary)
 
     async def close_calls(self, calls: List[PortfolioItem]) -> None:
-        return await self.close_positions("C", calls)
+        return await self.close_positions(OptionRight.CALL, calls)
 
     async def roll_calls(
         self,
@@ -1238,14 +1244,16 @@ class PortfolioManager:
         portfolio_positions: Dict[str, List[PortfolioItem]],
     ) -> List[PortfolioItem]:
         return await self.roll_positions(
-            calls, "C", account_summary, portfolio_positions
+            calls, OptionRight.CALL, account_summary, portfolio_positions
         )
 
-    async def close_positions(self, right: str, positions: List[PortfolioItem]) -> None:
+    async def close_positions(
+        self, right: OptionRight, positions: List[PortfolioItem]
+    ) -> None:
         log.notice(f"Close {right} positions...")
         for position in positions:
             try:
-                position.contract.exchange = self.get_order_exchange()
+                position.contract.exchange = self.config.get_order_exchange()
                 ticker = await self.ibkr.get_ticker_for_contract(position.contract)
                 is_short = position.position < 0
                 price = (
@@ -1281,7 +1289,7 @@ class PortfolioManager:
     async def roll_positions(
         self,
         positions: List[PortfolioItem],
-        right: str,
+        right: OptionRight,
         account_summary: Dict[str, AccountValue],
         portfolio_positions: Optional[Dict[str, List[PortfolioItem]]] = None,
     ) -> List[PortfolioItem]:
@@ -1293,7 +1301,7 @@ class PortfolioManager:
             try:
                 symbol = position.contract.symbol
 
-                position.contract.exchange = self.get_order_exchange()
+                position.contract.exchange = self.config.get_order_exchange()
                 buy_ticker = await self.ibkr.get_ticker_for_contract(
                     position.contract,
                     required_fields=[],
@@ -1301,7 +1309,7 @@ class PortfolioManager:
                 )
 
                 strike_limit = get_strike_limit(self.config, symbol, right)
-                if right.startswith("C"):
+                if right == OptionRight.CALL:
                     average_cost = (
                         [
                             p.averageCost
@@ -1320,7 +1328,7 @@ class PortfolioManager:
                     ):
                         strike_limit = max([strike_limit, position.contract.strike])
 
-                elif right.startswith("P"):
+                elif right == OptionRight.PUT:
                     strike_limit = round(
                         min(
                             [strike_limit or sys.float_info.max]
@@ -1346,36 +1354,33 @@ class PortfolioManager:
                     ):
                         strike_limit = min([strike_limit, position.contract.strike])
 
-                kind = "calls" if right.startswith("C") else "puts"
+                p_or_c = right.p_or_c()
 
                 minimum_price = (
                     (lambda: get_minimum_credit(self.config.orders))
-                    if not getattr(self.config.roll_when, kind).credit_only
+                    if not getattr(self.config.roll_when, p_or_c).credit_only
                     else (
                         lambda: midpoint_or_market_price(buy_ticker)
                         + get_minimum_credit(self.config.orders)
                     )
                 )
 
-                def fallback_minimum_price() -> float:
-                    return midpoint_or_market_price(buy_ticker)
-
-                sell_ticker = await self.find_eligible_contracts(
-                    Stock(
+                sell_ticker = await options.find_eligible_contracts(
+                    ibkr=self.ibkr,
+                    config=self.config,
+                    underlying=Stock(
                         symbol,
-                        self.get_order_exchange(),
+                        self.config.get_order_exchange(),
                         "USD",
                         primaryExchange=self.get_primary_exchange(symbol),
                     ),
-                    right,
-                    strike_limit,
-                    exclude_expirations_before=position.contract.lastTradeDateOrContractMonth,
-                    exclude_exp_strike=(
-                        position.contract.strike,
-                        position.contract.lastTradeDateOrContractMonth,
-                    ),
-                    minimum_price=minimum_price,
-                    fallback_minimum_price=fallback_minimum_price,
+                    right=right,
+                    strike_limit=strike_limit,
+                    min_dte=option_dte(position.contract.lastTradeDateOrContractMonth),
+                    exclude_strick=position.contract.strike,
+                    exclude_expiration=position.contract.lastTradeDateOrContractMonth,
+                    minimum_price=minimum_price(),
+                    fallback_minimum_price=midpoint_or_market_price(buy_ticker),
                 )
                 if not sell_ticker.contract:
                     raise RuntimeError(f"Invalid ticker (no contract): {sell_ticker}")
@@ -1397,7 +1402,7 @@ class PortfolioManager:
                 # a buy order should be at most the minimum price, when we expect a credit
                 price = (
                     min([price, -get_minimum_credit(self.config.orders)])
-                    if getattr(self.config.roll_when, kind).credit_only
+                    if getattr(self.config.roll_when, p_or_c).credit_only
                     else price
                 )
 
@@ -1412,13 +1417,13 @@ class PortfolioManager:
                     ComboLeg(
                         conId=position.contract.conId,
                         ratio=1,
-                        exchange=self.get_order_exchange(),
+                        exchange=self.config.get_order_exchange(),
                         action="BUY",
                     ),
                     ComboLeg(
                         conId=sell_ticker.contract.conId,
                         ratio=1,
-                        exchange=self.get_order_exchange(),
+                        exchange=self.config.get_order_exchange(),
                         action="SELL",
                     ),
                 ]
@@ -1428,7 +1433,7 @@ class PortfolioManager:
                     secType="BAG",
                     symbol=symbol,
                     currency="USD",
-                    exchange=self.get_order_exchange(),
+                    exchange=self.config.get_order_exchange(),
                     comboLegs=comboLegs,
                 )
 
@@ -1480,296 +1485,11 @@ class PortfolioManager:
 
         return closeable_positions
 
-    async def find_eligible_contracts(
-        self,
-        underlying: Contract,
-        right: str,
-        strike_limit: Optional[float],
-        minimum_price: Callable[[], float],
-        exclude_expirations_before: Optional[str] = None,
-        exclude_exp_strike: Optional[Tuple[float, str]] = None,
-        fallback_minimum_price: Optional[Callable[[], float]] = None,
-        target_dte: Optional[int] = None,
-        target_delta: Optional[float] = None,
-    ) -> Ticker:
-        contract_target_dte: int = (
-            target_dte
-            if target_dte
-            else get_target_dte(
-                self.config.target, self.config.symbol_config(underlying.symbol)
-            )
-        )
-        contract_target_delta: float = (
-            target_delta
-            if target_delta
-            else get_target_delta(
-                self.config.target, self.config.symbol_config(underlying.symbol), right
-            )
-        )
-        contract_max_dte = get_max_dte_for(
-            underlying.symbol,
-            self.config.target,
-            self.config.vix_call_hedge,
-            self.config.symbol_config(underlying.symbol),
-        )
-
-        log.notice(
-            f"{underlying.symbol}: Searching option chain for "
-            f"right={right} strike_limit={strike_limit} minimum_price={dfmt(minimum_price(),3)} "
-            f"fallback_minimum_price={dfmt(fallback_minimum_price() if fallback_minimum_price else 0,3)} "
-            f"contract_target_dte={contract_target_dte} contract_max_dte={contract_max_dte} "
-            f"contract_target_delta={contract_target_delta}, "
-            "this can take a while...",
-        )
-
-        underlying_ticker = await self.ibkr.get_ticker_for_contract(underlying)
-
-        underlying_price = midpoint_or_market_price(underlying_ticker)
-
-        chains = await self.ibkr.get_chains_for_contract(underlying)
-
-        chain = next(c for c in chains if c.exchange == underlying.exchange)
-
-        def valid_strike(strike: float) -> bool:
-            if right.startswith("P") and strike_limit:
-                return strike <= strike_limit
-            elif right.startswith("P"):
-                return strike <= underlying_price + 0.05 * underlying_price
-            elif right.startswith("C") and strike_limit:
-                return strike >= strike_limit
-            elif right.startswith("C"):
-                return strike >= underlying_price - 0.05 * underlying_price
-            return False
-
-        chain_expirations = self.config.option_chains.expirations
-        min_dte = (
-            option_dte(exclude_expirations_before) if exclude_expirations_before else 0
-        )
-        strikes = sorted(strike for strike in chain.strikes if valid_strike(strike))
-        expirations = sorted(
-            exp
-            for exp in chain.expirations
-            if option_dte(exp) >= contract_target_dte
-            and option_dte(exp) >= min_dte
-            and (not contract_max_dte or option_dte(exp) <= contract_max_dte)
-        )[:chain_expirations]
-        if len(expirations) < 1:
-            raise NoValidContractsError(
-                f"No valid contract expirations found for {underlying.symbol}. Continuing anyway...",
-            )
-        rights = [right]
-
-        def nearest_strikes(strikes: List[float]) -> List[float]:
-            chain_strikes = self.config.option_chains.strikes
-            if right.startswith("P"):
-                return strikes[-chain_strikes:]
-            return strikes[:chain_strikes]
-
-        strikes = nearest_strikes(strikes)
-        if len(strikes) < 1:
-            raise NoValidContractsError(
-                f"No valid contract strikes found for {underlying.symbol}. Continuing anyway...",
-            )
-        log.info(
-            f"{underlying.symbol}: Scanning between strikes {strikes[0]} and {strikes[-1]},"
-            f" from expirations {expirations[0]} to {expirations[-1]}"
-        )
-
-        contracts = [
-            Option(
-                underlying.symbol,
-                expiration,
-                strike,
-                right,
-                self.get_order_exchange(),
-                # tradingClass=chain.tradingClass,
-            )
-            for right in rights
-            for expiration in expirations
-            for strike in strikes
-        ]
-
-        contracts = await self.ibkr.qualify_contracts(*contracts)
-
-        # exclude strike, but only for the first exp
-        if exclude_exp_strike:
-            contracts = [
-                c
-                for c in contracts
-                if (
-                    c.lastTradeDateOrContractMonth != exclude_exp_strike[1]
-                    or c.strike != exclude_exp_strike[0]
-                )
-            ]
-
-        tickers = await self.ibkr.get_tickers_for_contracts(
-            underlying.symbol,
-            contracts,
-            generic_tick_list="101",
-            required_fields=[],
-            optional_fields=[
-                TickerField.MARKET_PRICE,
-                TickerField.GREEKS,
-                TickerField.OPEN_INTEREST,
-                TickerField.MIDPOINT,
-            ],
-        )
-
-        def open_interest_is_valid(ticker: Ticker, minimum_open_interest: int) -> bool:
-            # The open interest value is never present when using historical
-            # data, so just ignore it when the value is None
-            if right.startswith("P"):
-                return ticker.putOpenInterest >= minimum_open_interest
-            if right.startswith("C"):
-                return ticker.callOpenInterest >= minimum_open_interest
-            return False
-
-        def delta_is_valid(ticker: Ticker) -> bool:
-            return (
-                ticker.modelGreeks is not None
-                and ticker.modelGreeks
-                and ticker.modelGreeks.delta is not None
-                and not util.isNan(ticker.modelGreeks.delta)
-                and abs(ticker.modelGreeks.delta) <= contract_target_delta
-            )
-
-        def price_is_valid(ticker: Ticker) -> bool:
-            def cost_doesnt_exceed_market_price(ticker: Ticker) -> bool:
-                # when writing puts, we need to be sure that the strike +
-                # credit is less than or equal to the current market price, so
-                # that we don't exceed the target capital allocation for this
-                # position
-                return (
-                    right.startswith("C")
-                    or isinstance(ticker.contract, Option)
-                    and ticker.contract.strike
-                    <= midpoint_or_market_price(ticker) + underlying_price
-                )
-
-            return midpoint_or_market_price(
-                ticker
-            ) > minimum_price() and cost_doesnt_exceed_market_price(ticker)
-
-        # Filter out invalid price
-        tickers = [
-            ticker
-            for ticker in log.track(
-                tickers,
-                description=f"{underlying.symbol}: Filtering invalid prices...",
-                total=len(tickers),
-            )
-            if price_is_valid(ticker)
-        ]
-
-        # Filter out invalid greeks
-        new_tickers = []
-        delta_reject_tickers = []
-        for ticker in log.track(
-            tickers,
-            description=f"{underlying.symbol}: Filtering invalid deltas...",
-            total=len(tickers),
-        ):
-            if delta_is_valid(ticker):
-                new_tickers.append(ticker)
-            else:
-                delta_reject_tickers.append(ticker)
-        tickers = new_tickers
-
-        def filter_remaining_tickers(
-            tickers: List[Ticker], delta_ord_desc: bool
-        ) -> List[Ticker]:
-            minimum_open_interest = self.config.target.minimum_open_interest
-
-            if minimum_open_interest > 0:
-                tickers = [
-                    ticker
-                    for ticker in log.track(
-                        tickers,
-                        description=f"{underlying.symbol}: Filtering by open interest with delta_ord_desc={delta_ord_desc}...",
-                        total=len(tickers),
-                    )
-                    if open_interest_is_valid(ticker, minimum_open_interest)
-                ]
-
-            # Sort by delta first, then expiry date
-            tickers = sorted(
-                sorted(
-                    tickers,
-                    key=lambda t: (
-                        abs(t.modelGreeks.delta)
-                        if t.modelGreeks and t.modelGreeks.delta
-                        else 0
-                    ),
-                    reverse=delta_ord_desc,
-                ),
-                key=lambda t: (
-                    option_dte(t.contract.lastTradeDateOrContractMonth)
-                    if t.contract
-                    else 0
-                ),
-            )
-
-            return tickers
-
-        tickers = filter_remaining_tickers(list(tickers), True)
-
-        the_chosen_ticker = None
-
-        if len(tickers) == 0:
-            if not math.isclose(minimum_price(), 0.0):
-                # if we arrive here, it means that 1) we expect to roll for a
-                # credit only, but 2) we didn't find any suitable contracts,
-                # most likely because we can't roll out and up/down to the
-                # target delta
-                #
-                # because of this, we'll allow rolling to a less-than-optimal
-                # strike, provided it's still a credit
-                tickers = filter_remaining_tickers(list(delta_reject_tickers), False)
-            if len(tickers) < 1:
-                # if there are _still_ no tickers remaining, there's nothing
-                # more we can do
-                raise NoValidContractsError(
-                    f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
-                )
-        elif fallback_minimum_price is not None:
-            # if there's a fallback minimum price specified, try to find
-            # contracts that are at least that price first
-            for ticker in tickers:
-                if midpoint_or_market_price(ticker) > fallback_minimum_price():
-                    the_chosen_ticker = ticker
-                    break
-            if the_chosen_ticker is None:
-                # uh of, if we make it here then all of these options are
-                # net debits, so let's at least choose the ticker that will
-                # result in the smallest debit (i.e., minimize the max loss)
-                tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
-
-        if the_chosen_ticker is None:
-            # fall back to the first suitable result
-            the_chosen_ticker = tickers[0]
-
-        if not the_chosen_ticker or not the_chosen_ticker.contract:
-            raise RuntimeError(
-                f"{underlying.symbol}: Something went wrong, the_chosen_ticker={the_chosen_ticker}"
-            )
-
-        log.notice(
-            f"{underlying.symbol}: Found suitable contract at "
-            f"strike={the_chosen_ticker.contract.strike} "
-            f"dte={option_dte(the_chosen_ticker.contract.lastTradeDateOrContractMonth)} "
-            f"price={dfmt(midpoint_or_market_price(the_chosen_ticker),3)}"
-        )
-
-        return the_chosen_ticker
-
     def get_algo_strategy(self) -> str:
         return self.config.orders.algo.strategy
 
     def get_algo_params(self) -> List[TagValue]:
         return algo_params_from(self.config.orders.algo.params)
-
-    def get_order_exchange(self) -> str:
-        return self.config.orders.exchange
 
     async def do_vix_hedging(
         self,
@@ -1800,7 +1520,7 @@ class PortfolioManager:
             ignore_dte = self.config.vix_call_hedge.ignore_dte
 
             net_vix_call_count = net_option_positions(
-                "VIX", portfolio_positions, "C", ignore_dte=ignore_dte
+                "VIX", portfolio_positions, OptionRight.CALL, ignore_dte=ignore_dte
             )
             if net_vix_call_count > 0:
                 log.info(
@@ -1821,7 +1541,7 @@ class PortfolioManager:
                     )
                     for position in portfolio_positions["VIX"]:
                         if (
-                            position.contract.right.startswith("C")
+                            position.contract.right.startswith(OptionRight.CALL.value)
                             and position.position < 0
                         ):
                             # only applies to long calls
@@ -1829,7 +1549,7 @@ class PortfolioManager:
                         log.notice(
                             f"Creating closing order for {position.contract.localSymbol}..."
                         )
-                        position.contract.exchange = self.get_order_exchange()
+                        position.contract.exchange = self.config.get_order_exchange()
                         sell_ticker = await self.ibkr.get_ticker_for_contract(
                             position.contract
                         )
@@ -1918,14 +1638,15 @@ class PortfolioManager:
                     log.info(
                         "VIX: Scanning option chain for eligible contracts...",
                     )
-                    vix_contract = Index("VIX", "CBOE", "USD")
-                    buy_ticker = await self.find_eligible_contracts(
-                        vix_contract,
-                        "C",
-                        0,
-                        target_delta=delta,
-                        target_dte=target_dte,
-                        minimum_price=lambda: get_minimum_credit(self.config.orders),
+                    buy_ticker = await options.find_eligible_contracts(
+                        ibkr=self.ibkr,
+                        config=self.config,
+                        underlying=Index("VIX", "CBOE", "USD"),
+                        right=OptionRight.CALL,
+                        strike_limit=0,
+                        minimum_price=get_minimum_credit(self.config.orders),
+                        contract_target_delta_override=delta,
+                        contract_target_dte_override=target_dte,
                     )
                     if not isinstance(buy_ticker.contract, Option):
                         raise RuntimeError(
@@ -2205,7 +1926,7 @@ class PortfolioManager:
                 continue
 
     async def get_write_threshold(
-        self, ticker: Ticker, right: str
+        self, ticker: Ticker, right: OptionRight
     ) -> tuple[float, float]:
         assert ticker.contract is not None
         absolute_daily_change = math.fabs(ticker.marketPrice() - ticker.close)

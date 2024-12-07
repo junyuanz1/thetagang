@@ -1,4 +1,5 @@
 import math
+from datetime import date, datetime
 from operator import itemgetter
 from typing import Dict, List, Optional, Tuple
 
@@ -17,7 +18,19 @@ from thetagang.config import (
     VIXCallHedgeConfig,
     WriteWhenConfig,
 )
-from thetagang.options import option_dte
+from thetagang.types import OptionRight
+
+
+def contract_date_to_datetime(expiration: str) -> datetime:
+    if len(expiration) == 8:
+        return datetime.strptime(expiration, "%Y%m%d")
+    else:
+        return datetime.strptime(expiration, "%Y%m")
+
+
+def option_dte(expiration: str) -> int:
+    dte = contract_date_to_datetime(expiration).date() - date.today()
+    return dte.days
 
 
 def account_summary_to_dict(
@@ -46,35 +59,37 @@ def position_pnl(position: ib_async.objects.PortfolioItem) -> float:
 
 
 def get_short_positions(
-    positions: List[PortfolioItem], right: str
+    positions: List[PortfolioItem], right: OptionRight
 ) -> List[PortfolioItem]:
     return [
         p
         for p in positions
         if isinstance(p.contract, Option)
-        and p.contract.right.upper().startswith(right.upper())
+        and p.contract.right.upper().startswith(right.value)
         and p.position < 0
     ]
 
 
 def get_long_positions(
-    positions: List[PortfolioItem], right: str
+    positions: List[PortfolioItem], right: OptionRight
 ) -> List[PortfolioItem]:
     return [
         p
         for p in positions
         if isinstance(p.contract, Option)
-        and p.contract.right.upper().startswith(right.upper())
+        and p.contract.right.upper().startswith(right.value)
         and p.position > 0
     ]
 
 
-def count_short_option_positions(positions: List[PortfolioItem], right: str) -> int:
+def count_short_option_positions(
+    positions: List[PortfolioItem], right: OptionRight
+) -> int:
     return math.floor(-sum([p.position for p in get_short_positions(positions, right)]))
 
 
 def weighted_avg_short_strike(
-    positions: List[PortfolioItem], right: str
+    positions: List[PortfolioItem], right: OptionRight
 ) -> Optional[float]:
     shorts = [
         (abs(p.position), p.contract.strike)
@@ -87,7 +102,7 @@ def weighted_avg_short_strike(
 
 
 def weighted_avg_long_strike(
-    positions: List[PortfolioItem], right: str
+    positions: List[PortfolioItem], right: OptionRight
 ) -> Optional[float]:
     shorts = [
         (abs(p.position), p.contract.strike)
@@ -99,11 +114,15 @@ def weighted_avg_long_strike(
         return num / den
 
 
-def count_long_option_positions(positions: List[PortfolioItem], right: str) -> int:
+def count_long_option_positions(
+    positions: List[PortfolioItem], right: OptionRight
+) -> int:
     return math.floor(sum([p.position for p in get_long_positions(positions, right)]))
 
 
-def calculate_net_short_positions(positions: List[PortfolioItem], right: str) -> int:
+def calculate_net_short_positions(
+    positions: List[PortfolioItem], right: OptionRight
+) -> int:
     shorts = [
         (
             option_dte(p.contract.lastTradeDateOrContractMonth),
@@ -120,8 +139,8 @@ def calculate_net_short_positions(positions: List[PortfolioItem], right: str) ->
         )
         for p in get_long_positions(positions, right)
     ]
-    shorts = sorted(shorts, key=itemgetter(0, 1), reverse=right.upper().startswith("P"))
-    longs = sorted(longs, key=itemgetter(0, 1), reverse=right.upper().startswith("P"))
+    shorts = sorted(shorts, key=itemgetter(0, 1), reverse=(right == OptionRight.PUT))
+    longs = sorted(longs, key=itemgetter(0, 1), reverse=(right == OptionRight.PUT))
 
     def calc_net(short_dte: int, short_strike: float, short_position: float) -> float:
         for i in range(len(longs)):
@@ -134,8 +153,8 @@ def calculate_net_short_positions(positions: List[PortfolioItem], right: str) ->
             if long_dte >= short_dte:
                 if (
                     math.isclose(short_strike, long_strike)
-                    or (right.upper().startswith("P") and long_strike >= short_strike)
-                    or (right.upper().startswith("C") and long_strike <= short_strike)
+                    or ((right == OptionRight.PUT) and long_strike >= short_strike)
+                    or ((right == OptionRight.CALL) and long_strike <= short_strike)
                 ):
                     if short_position + long_position > 0:
                         long_position = short_position + long_position
@@ -154,7 +173,7 @@ def calculate_net_short_positions(positions: List[PortfolioItem], right: str) ->
 def net_option_positions(
     symbol: str,
     portfolio_positions: Dict[str, List[PortfolioItem]],
-    right: str,
+    right: OptionRight,
     ignore_dte: Optional[int] = None,
 ) -> int:
     if symbol in portfolio_positions:
@@ -164,7 +183,7 @@ def net_option_positions(
                     p.position
                     for p in portfolio_positions[symbol]
                     if isinstance(p.contract, Option)
-                    and p.contract.right.upper().startswith(right.upper())
+                    and p.contract.right.upper().startswith(right.value)
                     and option_dte(p.contract.lastTradeDateOrContractMonth) >= 0
                     and (
                         not ignore_dte
@@ -226,9 +245,11 @@ def get_target_dte(
 
 
 def get_target_delta(
-    target_config: TargetConfig, symbol_config: Optional[SymbolConfig], right: str
+    target_config: TargetConfig,
+    symbol_config: Optional[SymbolConfig],
+    right: OptionRight,
 ) -> float:
-    p_or_c = "calls" if right.upper().startswith("C") else "puts"
+    p_or_c = right.p_or_c()
 
     if symbol_config:
         option_config = getattr(symbol_config, p_or_c, None)
@@ -270,10 +291,13 @@ def get_cap_target_floor(
     return write_when_config.calls.cap_target_floor
 
 
-def get_strike_limit(config: Config, symbol: str, right: str) -> Optional[float]:
-    p_or_c = "calls" if right.upper().startswith("C") else "puts"
+def get_strike_limit(
+    config: Config, symbol: str, right: OptionRight
+) -> Optional[float]:
     symbol_config = config.symbols.get(symbol)
-    option_config = getattr(symbol_config, p_or_c, None) if symbol_config else None
+    option_config = (
+        getattr(symbol_config, right.p_or_c(), None) if symbol_config else None
+    )
     return option_config.strike_limit if option_config else None
 
 
@@ -296,10 +320,9 @@ def get_target_calls(
 def get_write_threshold_sigma(
     constants_config: Optional[ConstantsConfig],
     symbol_config: Optional[SymbolConfig],
-    right: str,
+    right: OptionRight,
 ) -> Optional[float]:
-    p_or_c = "calls" if right.upper().startswith("C") else "puts"
-
+    p_or_c = right.p_or_c()
     if symbol_config:
         option_config = getattr(symbol_config, p_or_c, None)
         if option_config:
@@ -326,9 +349,9 @@ def get_write_threshold_sigma(
 def get_write_threshold_perc(
     constants_config: ConstantsConfig,
     symbole_config: Optional[SymbolConfig],
-    right: str,
+    right: OptionRight,
 ) -> float:
-    p_or_c = "calls" if right.upper().startswith("C") else "puts"
+    p_or_c = right.p_or_c()
 
     if symbole_config:
         option_config = getattr(symbole_config, p_or_c, None)
@@ -367,19 +390,21 @@ def maintain_high_water_mark(
     return roll_when_config.calls.maintain_high_water_mark
 
 
-def get_max_dte_for(
-    symbol: str,
+def get_max_dte(
     target_config: TargetConfig,
-    vix_call_hedge_config: VIXCallHedgeConfig,
     symbol_config: Optional[SymbolConfig],
 ) -> Optional[int]:
-    if symbol == "VIX" and vix_call_hedge_config.max_dte is not None:
-        return vix_call_hedge_config.max_dte
-
     if symbol_config and symbol_config.max_dte is not None:
         return symbol_config.max_dte
-
     return target_config.max_dte
+
+
+def get_vix_max_dte(
+    vix_call_hedge_config: VIXCallHedgeConfig,
+) -> Optional[int]:
+    if vix_call_hedge_config.max_dte is not None:
+        return vix_call_hedge_config.max_dte
+    return None
 
 
 def would_increase_spread(order: Order, updated_price: float) -> bool:
@@ -394,9 +419,9 @@ def would_increase_spread(order: Order, updated_price: float) -> bool:
 def can_write_when(
     write_when_config: WriteWhenConfig,
     symbol_config: Optional[SymbolConfig],
-    right: str,
+    right: OptionRight,
 ) -> Tuple[bool, bool]:
-    p_or_c = "calls" if right.upper().startswith("C") else "puts"
+    p_or_c = right.p_or_c()
 
     option_config = getattr(symbol_config, p_or_c, None) if symbol_config else None
     default_config = getattr(write_when_config, p_or_c)

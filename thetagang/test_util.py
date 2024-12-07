@@ -11,6 +11,7 @@ from thetagang.test_config import (
     TargetConfigFactory,
     TargetConfigPutsFactory,
 )
+from thetagang.types import OptionRight
 from thetagang.util import (
     calculate_net_short_positions,
     get_target_delta,
@@ -28,7 +29,7 @@ def test_position_pnl() -> None:
             symbol="QQQ",
             lastTradeDateOrContractMonth="20201218",
             strike=300.0,
-            right="P",
+            right=OptionRight.PUT.value,
             multiplier="100",
             primaryExchange="AMEX",
             currency="USD",
@@ -71,7 +72,7 @@ def test_position_pnl() -> None:
             symbol="SPY",
             lastTradeDateOrContractMonth="20201214",
             strike=373.0,
-            right="C",
+            right=OptionRight.CALL.value,
             multiplier="100",
             primaryExchange="AMEX",
             currency="USD",
@@ -94,7 +95,7 @@ def test_position_pnl() -> None:
             symbol="SPY",
             lastTradeDateOrContractMonth="20210122",
             strike=352.5,
-            right="P",
+            right=OptionRight.PUT.value,
             multiplier="100",
             primaryExchange="AMEX",
             currency="USD",
@@ -117,8 +118,8 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=None, puts=None, calls=None
     )
-    assert 0.5 == get_target_delta(target_config, symbol_config, "P")
-    assert 0.5 == get_target_delta(target_config, symbol_config, "C")
+    assert 0.5 == get_target_delta(target_config, symbol_config, OptionRight.PUT)
+    assert 0.5 == get_target_delta(target_config, symbol_config, OptionRight.CALL)
 
     target_config = TargetConfigFactory.build(
         delta=0.5, puts=TargetConfigPutsFactory.build(delta=0.4), calls=None
@@ -126,7 +127,7 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=None, puts=None, calls=None
     )
-    assert 0.4 == get_target_delta(target_config, symbol_config, "P")
+    assert 0.4 == get_target_delta(target_config, symbol_config, OptionRight.PUT)
 
     target_config = TargetConfigFactory.build(
         delta=0.5, calls=TargetConfigCallsFactory.build(delta=0.4), puts=None
@@ -134,7 +135,7 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=None, puts=None, calls=None
     )
-    assert 0.5 == get_target_delta(target_config, symbol_config, "P")
+    assert 0.5 == get_target_delta(target_config, symbol_config, OptionRight.PUT)
 
     target_config = TargetConfigFactory.build(
         delta=0.5, calls=TargetConfigCallsFactory.build(delta=0.4), puts=None
@@ -142,7 +143,7 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=None, puts=None, calls=None
     )
-    assert 0.4 == get_target_delta(target_config, symbol_config, "C")
+    assert 0.4 == get_target_delta(target_config, symbol_config, OptionRight.CALL)
 
     target_config = TargetConfigFactory.build(
         delta=0.5, calls=TargetConfigCallsFactory.build(delta=0.4), puts=None
@@ -150,7 +151,7 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=0.3, puts=None, calls=None
     )
-    assert 0.3 == get_target_delta(target_config, symbol_config, "C")
+    assert 0.3 == get_target_delta(target_config, symbol_config, OptionRight.CALL)
 
     target_config = TargetConfigFactory.build(
         delta=0.5, calls=TargetConfigCallsFactory.build(delta=0.4), puts=None
@@ -158,7 +159,7 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=0.3, puts=SymbolConfigPutsFactory.build(delta=0.2), calls=None
     )
-    assert 0.3 == get_target_delta(target_config, symbol_config, "C")
+    assert 0.3 == get_target_delta(target_config, symbol_config, OptionRight.CALL)
 
     target_config = TargetConfigFactory.build(
         delta=0.5, calls=TargetConfigCallsFactory.build(delta=0.4), puts=None
@@ -166,17 +167,17 @@ def test_get_delta() -> None:
     symbol_config = SymbolConfigFactory.build(
         weight=1.0, delta=0.3, puts=SymbolConfigPutsFactory.build(delta=0.2), calls=None
     )
-    assert 0.2 == get_target_delta(target_config, symbol_config, "P")
+    assert 0.2 == get_target_delta(target_config, symbol_config, OptionRight.PUT)
 
 
-def con(dte: str, strike: float, right: str, position: float) -> PortfolioItem:
+def con(dte: str, strike: float, right: OptionRight, position: float) -> PortfolioItem:
     return PortfolioItem(
         contract=Option(
             conId=458705534,
             symbol="SPY",
             lastTradeDateOrContractMonth=dte,
             strike=strike,
-            right=right,
+            right=right.value,
             multiplier="100",
             primaryExchange="AMEX",
             currency="USD",
@@ -199,188 +200,193 @@ def test_calculate_net_short_positions() -> None:
     exp30dte = (today + timedelta(days=30)).strftime("%Y%m%d")
     exp90dte = (today + timedelta(days=90)).strftime("%Y%m%d")
 
-    assert 1 == calculate_net_short_positions([con(exp3dte, 69, "P", -1)], "P")
-
     assert 1 == calculate_net_short_positions(
-        [con(exp3dte, 69, "P", -1), con(exp3dte, 69, "C", 1)], "P"
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [con(exp3dte, 69, "P", -1), con(exp3dte, 69, "C", 1)], "C"
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [con(exp3dte, 69, "C", -1), con(exp3dte, 69, "C", 1)], "C"
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 69, "C", 1),
-        ],
-        "C",
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "P", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 69, "C", 1),
-        ],
-        "C",
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "P", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 70, "C", 1),
-        ],
-        "C",
+        [con(exp3dte, 69, OptionRight.PUT, -1)], OptionRight.PUT
     )
 
     assert 1 == calculate_net_short_positions(
-        [
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 70, "C", 1),
-        ],
-        "C",
+        [con(exp3dte, 69, OptionRight.PUT, -1), con(exp3dte, 69, OptionRight.CALL, 1)],
+        OptionRight.PUT,
     )
 
-    assert 2 == calculate_net_short_positions(
-        [
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "P", 1),
-            con(exp30dte, 69, "P", 1),
-        ],
-        "C",
+    assert 0 == calculate_net_short_positions(
+        [con(exp3dte, 69, OptionRight.PUT, -1), con(exp3dte, 69, OptionRight.CALL, 1)],
+        OptionRight.CALL,
+    )
+
+    assert 0 == calculate_net_short_positions(
+        [con(exp3dte, 69, OptionRight.CALL, -1), con(exp3dte, 69, OptionRight.CALL, 1)],
+        OptionRight.CALL,
     )
 
     assert 0 == calculate_net_short_positions(
         [
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "C", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 69, "C", 5),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 69, OptionRight.CALL, 1),
         ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 0 == calculate_net_short_positions(
         [
-            con(exp3dte, 69, "C", -1),
-            con(exp30dte, 69, "C", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 69, "C", 5),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.PUT, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 69, OptionRight.CALL, 1),
         ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 0 == calculate_net_short_positions(
         [
-            con(exp3dte, 69, "P", -1),
-            con(exp30dte, 69, "P", -1),
-            con(exp3dte, 69, "P", 1),
-            con(exp30dte, 69, "P", 5),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.PUT, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 70, OptionRight.CALL, 1),
         ],
-        "P",
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [
-            con(exp3dte, 70, "P", -1),
-            con(exp30dte, 69, "P", -1),
-            con(exp3dte, 69, "P", 1),
-            con(exp30dte, 70, "P", 5),
-        ],
-        "P",
-    )
-
-    assert 2 == calculate_net_short_positions(
-        [
-            con(exp3dte, 70, "P", -1),
-            con(exp30dte, 69, "P", -1),
-            con(exp3dte, 69, "P", 1),
-            con(exp30dte, 68, "P", 5),
-        ],
-        "P",
-    )
-
-    assert 0 == calculate_net_short_positions(
-        [
-            con(exp3dte, 70, "C", -1),
-            con(exp30dte, 69, "C", -1),
-            con(exp3dte, 69, "C", 1),
-            con(exp30dte, 68, "C", 5),
-        ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 1 == calculate_net_short_positions(
         [
-            con(exp3dte, 70, "C", -1),
-            con(exp30dte, 69, "C", -1),
-            con(exp3dte, 71, "C", 1),
-            con(exp30dte, 70, "C", 5),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 70, OptionRight.CALL, 1),
         ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 2 == calculate_net_short_positions(
         [
-            con(exp3dte, 70, "C", -1),
-            con(exp30dte, 71, "C", -1),
-            con(exp3dte, 71, "C", 1),
-            con(exp30dte, 72, "C", 5),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.PUT, 1),
+            con(exp30dte, 69, OptionRight.PUT, 1),
         ],
-        "C",
+        OptionRight.CALL,
+    )
+
+    assert 0 == calculate_net_short_positions(
+        [
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 69, OptionRight.CALL, 5),
+        ],
+        OptionRight.CALL,
+    )
+
+    assert 0 == calculate_net_short_positions(
+        [
+            con(exp3dte, 69, OptionRight.CALL, -1),
+            con(exp30dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 69, OptionRight.CALL, 5),
+        ],
+        OptionRight.CALL,
+    )
+
+    assert 0 == calculate_net_short_positions(
+        [
+            con(exp3dte, 69, OptionRight.PUT, -1),
+            con(exp30dte, 69, OptionRight.PUT, -1),
+            con(exp3dte, 69, OptionRight.PUT, 1),
+            con(exp30dte, 69, OptionRight.PUT, 5),
+        ],
+        OptionRight.PUT,
+    )
+
+    assert 0 == calculate_net_short_positions(
+        [
+            con(exp3dte, 70, OptionRight.PUT, -1),
+            con(exp30dte, 69, OptionRight.PUT, -1),
+            con(exp3dte, 69, OptionRight.PUT, 1),
+            con(exp30dte, 70, OptionRight.PUT, 5),
+        ],
+        OptionRight.PUT,
+    )
+
+    assert 2 == calculate_net_short_positions(
+        [
+            con(exp3dte, 70, OptionRight.PUT, -1),
+            con(exp30dte, 69, OptionRight.PUT, -1),
+            con(exp3dte, 69, OptionRight.PUT, 1),
+            con(exp30dte, 68, OptionRight.PUT, 5),
+        ],
+        OptionRight.PUT,
+    )
+
+    assert 0 == calculate_net_short_positions(
+        [
+            con(exp3dte, 70, OptionRight.CALL, -1),
+            con(exp30dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 69, OptionRight.CALL, 1),
+            con(exp30dte, 68, OptionRight.CALL, 5),
+        ],
+        OptionRight.CALL,
+    )
+
+    assert 1 == calculate_net_short_positions(
+        [
+            con(exp3dte, 70, OptionRight.CALL, -1),
+            con(exp30dte, 69, OptionRight.CALL, -1),
+            con(exp3dte, 71, OptionRight.CALL, 1),
+            con(exp30dte, 70, OptionRight.CALL, 5),
+        ],
+        OptionRight.CALL,
+    )
+
+    assert 2 == calculate_net_short_positions(
+        [
+            con(exp3dte, 70, OptionRight.CALL, -1),
+            con(exp30dte, 71, OptionRight.CALL, -1),
+            con(exp3dte, 71, OptionRight.CALL, 1),
+            con(exp30dte, 72, OptionRight.CALL, 5),
+        ],
+        OptionRight.CALL,
     )
 
     assert 3 == calculate_net_short_positions(
         [
-            con(exp3dte, 70, "C", -1),
-            con(exp30dte, 71, "C", -1),
-            con(exp90dte, 72, "C", -1),
-            con(exp3dte, 71, "C", 1),
-            con(exp30dte, 72, "C", 5),
+            con(exp3dte, 70, OptionRight.CALL, -1),
+            con(exp30dte, 71, OptionRight.CALL, -1),
+            con(exp90dte, 72, OptionRight.CALL, -1),
+            con(exp3dte, 71, OptionRight.CALL, 1),
+            con(exp30dte, 72, OptionRight.CALL, 5),
         ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 5 == calculate_net_short_positions(
         [
-            con(exp3dte, 60, "P", -10),
-            con(exp30dte, 69, "P", -1),
-            con(exp90dte, 69, "P", 1),
-            con(exp90dte, 68, "P", 5),
+            con(exp3dte, 60, OptionRight.PUT, -10),
+            con(exp30dte, 69, OptionRight.PUT, -1),
+            con(exp90dte, 69, OptionRight.PUT, 1),
+            con(exp90dte, 68, OptionRight.PUT, 5),
         ],
-        "P",
+        OptionRight.PUT,
     )
 
     assert 10 == calculate_net_short_positions(
         [
-            con(exp3dte, 70, "P", -10),
-            con(exp30dte, 69, "P", -1),
-            con(exp90dte, 69, "P", 1),
-            con(exp90dte, 68, "P", 5),
+            con(exp3dte, 70, OptionRight.PUT, -10),
+            con(exp30dte, 69, OptionRight.PUT, -1),
+            con(exp90dte, 69, OptionRight.PUT, 1),
+            con(exp90dte, 68, OptionRight.PUT, 5),
         ],
-        "P",
+        OptionRight.PUT,
     )
 
     assert 0 == calculate_net_short_positions(
         [
-            con(exp3dte, 60, "P", -10),
-            con(exp30dte, 69, "P", -1),
-            con(exp90dte, 69, "P", 1),
-            con(exp90dte, 68, "P", 50),
+            con(exp3dte, 60, OptionRight.PUT, -10),
+            con(exp30dte, 69, OptionRight.PUT, -1),
+            con(exp90dte, 69, OptionRight.PUT, 1),
+            con(exp90dte, 68, OptionRight.PUT, 50),
         ],
-        "P",
+        OptionRight.PUT,
     )
 
     # A couple real-world examples
@@ -393,58 +399,58 @@ def test_calculate_net_short_positions() -> None:
 
     assert 2 == calculate_net_short_positions(
         [
-            con(exp9dte, 77.0, "P", -2),
-            con(exp16dte, 76.0, "P", -1),
-            con(exp16dte, 77.0, "P", -1),
-            con(exp23dte, 77.0, "P", -6),
-            con(exp30dte, 77.0, "P", -2),
-            con(exp37dte, 77.0, "P", -5),
-            con(exp268dte, 77.0, "P", 15),
+            con(exp9dte, 77.0, OptionRight.PUT, -2),
+            con(exp16dte, 76.0, OptionRight.PUT, -1),
+            con(exp16dte, 77.0, OptionRight.PUT, -1),
+            con(exp23dte, 77.0, OptionRight.PUT, -6),
+            con(exp30dte, 77.0, OptionRight.PUT, -2),
+            con(exp37dte, 77.0, OptionRight.PUT, -5),
+            con(exp268dte, 77.0, OptionRight.PUT, 15),
         ],
-        "P",
+        OptionRight.PUT,
     )
 
     assert 0 == calculate_net_short_positions(
         [
-            con(exp9dte, 77.0, "P", -2),
-            con(exp16dte, 76.0, "P", -1),
-            con(exp16dte, 77.0, "P", -1),
-            con(exp23dte, 77.0, "P", -6),
-            con(exp30dte, 77.0, "P", -2),
-            con(exp37dte, 77.0, "P", -5),
-            con(exp268dte, 77.0, "P", 15),
+            con(exp9dte, 77.0, OptionRight.PUT, -2),
+            con(exp16dte, 76.0, OptionRight.PUT, -1),
+            con(exp16dte, 77.0, OptionRight.PUT, -1),
+            con(exp23dte, 77.0, OptionRight.PUT, -6),
+            con(exp30dte, 77.0, OptionRight.PUT, -2),
+            con(exp37dte, 77.0, OptionRight.PUT, -5),
+            con(exp268dte, 77.0, OptionRight.PUT, 15),
         ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 20 == calculate_net_short_positions(
         [
-            con(exp23dte, 72.0, "C", -8),
-            con(exp30dte, 66.0, "C", -8),
-            con(exp30dte, 68.0, "C", -9),
-            con(exp30dte, 69.0, "C", -7),
-            con(exp30dte, 72.0, "C", -1),
-            con(exp37dte, 59.5, "C", -8),
-            con(exp37dte, 68.0, "C", -7),
-            con(exp268dte, 55.0, "C", 5),
-            con(exp268dte, 60.0, "C", 23),
+            con(exp23dte, 72.0, OptionRight.CALL, -8),
+            con(exp30dte, 66.0, OptionRight.CALL, -8),
+            con(exp30dte, 68.0, OptionRight.CALL, -9),
+            con(exp30dte, 69.0, OptionRight.CALL, -7),
+            con(exp30dte, 72.0, OptionRight.CALL, -1),
+            con(exp37dte, 59.5, OptionRight.CALL, -8),
+            con(exp37dte, 68.0, OptionRight.CALL, -7),
+            con(exp268dte, 55.0, OptionRight.CALL, 5),
+            con(exp268dte, 60.0, OptionRight.CALL, 23),
         ],
-        "C",
+        OptionRight.CALL,
     )
 
     assert 0 == calculate_net_short_positions(
         [
-            con(exp23dte, 72.0, "C", -8),
-            con(exp30dte, 66.0, "C", -8),
-            con(exp30dte, 68.0, "C", -9),
-            con(exp30dte, 69.0, "C", -7),
-            con(exp30dte, 72.0, "C", -1),
-            con(exp37dte, 59.5, "C", -8),
-            con(exp37dte, 68.0, "C", -7),
-            con(exp268dte, 55.0, "C", 5),
-            con(exp268dte, 60.0, "C", 23),
+            con(exp23dte, 72.0, OptionRight.CALL, -8),
+            con(exp30dte, 66.0, OptionRight.CALL, -8),
+            con(exp30dte, 68.0, OptionRight.CALL, -9),
+            con(exp30dte, 69.0, OptionRight.CALL, -7),
+            con(exp30dte, 72.0, OptionRight.CALL, -1),
+            con(exp37dte, 59.5, OptionRight.CALL, -8),
+            con(exp37dte, 68.0, OptionRight.CALL, -7),
+            con(exp268dte, 55.0, OptionRight.CALL, 5),
+            con(exp268dte, 60.0, OptionRight.CALL, 23),
         ],
-        "P",
+        OptionRight.PUT,
     )
 
 
@@ -458,13 +464,13 @@ def test_weighted_avg_strike() -> None:
         70,
         weighted_avg_short_strike(
             [
-                con(exp3dte, 70, "C", -1),
-                con(exp30dte, 70, "C", -1),
-                con(exp90dte, 70, "C", -1),
-                con(exp3dte, 100, "C", 1),
-                con(exp30dte, 100, "C", 5),
+                con(exp3dte, 70, OptionRight.CALL, -1),
+                con(exp30dte, 70, OptionRight.CALL, -1),
+                con(exp90dte, 70, OptionRight.CALL, -1),
+                con(exp3dte, 100, OptionRight.CALL, 1),
+                con(exp30dte, 100, OptionRight.CALL, 5),
             ],
-            "C",
+            OptionRight.CALL,
         )
         or -1,
     )
@@ -472,13 +478,13 @@ def test_weighted_avg_strike() -> None:
         100,
         weighted_avg_long_strike(
             [
-                con(exp3dte, 70, "C", -1),
-                con(exp30dte, 70, "C", -1),
-                con(exp90dte, 70, "C", -1),
-                con(exp3dte, 100, "C", 1),
-                con(exp30dte, 100, "C", 5),
+                con(exp3dte, 70, OptionRight.CALL, -1),
+                con(exp30dte, 70, OptionRight.CALL, -1),
+                con(exp90dte, 70, OptionRight.CALL, -1),
+                con(exp3dte, 100, OptionRight.CALL, 1),
+                con(exp30dte, 100, OptionRight.CALL, 5),
             ],
-            "C",
+            OptionRight.CALL,
         )
         or -1,
     )
@@ -486,13 +492,13 @@ def test_weighted_avg_strike() -> None:
         70,
         weighted_avg_short_strike(
             [
-                con(exp3dte, 70, "P", -1),
-                con(exp30dte, 70, "P", -1),
-                con(exp90dte, 70, "P", -1),
-                con(exp3dte, 100, "P", 1),
-                con(exp30dte, 100, "P", 5),
+                con(exp3dte, 70, OptionRight.PUT, -1),
+                con(exp30dte, 70, OptionRight.PUT, -1),
+                con(exp90dte, 70, OptionRight.PUT, -1),
+                con(exp3dte, 100, OptionRight.PUT, 1),
+                con(exp30dte, 100, OptionRight.PUT, 5),
             ],
-            "P",
+            OptionRight.PUT,
         )
         or -1,
     )
@@ -500,13 +506,13 @@ def test_weighted_avg_strike() -> None:
         100,
         weighted_avg_long_strike(
             [
-                con(exp3dte, 70, "P", -1),
-                con(exp30dte, 70, "P", -1),
-                con(exp90dte, 70, "P", -1),
-                con(exp3dte, 100, "P", 1),
-                con(exp30dte, 100, "P", 5),
+                con(exp3dte, 70, OptionRight.PUT, -1),
+                con(exp30dte, 70, OptionRight.PUT, -1),
+                con(exp90dte, 70, OptionRight.PUT, -1),
+                con(exp3dte, 100, OptionRight.PUT, 1),
+                con(exp30dte, 100, OptionRight.PUT, 5),
             ],
-            "P",
+            OptionRight.PUT,
         )
         or -1,
     )
@@ -515,12 +521,12 @@ def test_weighted_avg_strike() -> None:
         28,
         weighted_avg_short_strike(
             [
-                con(exp3dte, 10, "P", -4),
-                con(exp3dte, 100, "P", -1),
-                con(exp3dte, 100, "P", 4),
-                con(exp3dte, 10, "P", 1),
+                con(exp3dte, 10, OptionRight.PUT, -4),
+                con(exp3dte, 100, OptionRight.PUT, -1),
+                con(exp3dte, 100, OptionRight.PUT, 4),
+                con(exp3dte, 10, OptionRight.PUT, 1),
             ],
-            "P",
+            OptionRight.PUT,
         )
         or -1,
     )
@@ -529,12 +535,12 @@ def test_weighted_avg_strike() -> None:
         82,
         weighted_avg_long_strike(
             [
-                con(exp3dte, 10, "P", -4),
-                con(exp3dte, 100, "P", -1),
-                con(exp3dte, 100, "P", 4),
-                con(exp3dte, 10, "P", 1),
+                con(exp3dte, 10, OptionRight.PUT, -4),
+                con(exp3dte, 100, OptionRight.PUT, -1),
+                con(exp3dte, 100, OptionRight.PUT, 4),
+                con(exp3dte, 10, OptionRight.PUT, 1),
             ],
-            "P",
+            OptionRight.PUT,
         )
         or -1,
     )
