@@ -1377,10 +1377,8 @@ class PortfolioManager:
                     right=right,
                     strike_limit=strike_limit,
                     min_dte=option_dte(position.contract.lastTradeDateOrContractMonth),
-                    exclude_exp_strike=(
-                        position.contract.strike,
-                        position.contract.lastTradeDateOrContractMonth,
-                    ),
+                    exclude_strick=position.contract.strike,
+                    exclude_expiration=position.contract.lastTradeDateOrContractMonth,
                     minimum_price=minimum_price(),
                     fallback_minimum_price=midpoint_or_market_price(buy_ticker),
                 )

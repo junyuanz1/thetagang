@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from ib_async import Contract, Option, Ticker, util
 from more_itertools import partition
@@ -33,7 +33,8 @@ async def find_eligible_contracts(
     min_dte: int = 0,
     strike_limit: Optional[float] = None,
     fallback_minimum_price: Optional[float] = None,
-    exclude_exp_strike: Optional[Tuple[float, str]] = None,
+    exclude_strick: Optional[float] = None,
+    exclude_expiration: Optional[str] = None,
     contract_target_dte_override: Optional[int] = None,
     contract_target_delta_override: Optional[float] = None,
 ) -> Ticker:
@@ -117,18 +118,26 @@ async def find_eligible_contracts(
 
     contracts = await ibkr.qualify_contracts(*contracts)
 
+    log.info(f"{underlying.symbol}: Found {len(contracts)} contracts...")
+
     # exclude strike, but only for the first exp
-    if exclude_exp_strike:
+    if exclude_strick is not None or exclude_expiration is not None:
+        log.info(
+            f"{underlying.symbol}: Excluding strike {exclude_strick} and expiration {exclude_expiration}..."
+        )
         contracts = [
             c
             for c in contracts
             if (
-                c.lastTradeDateOrContractMonth != exclude_exp_strike[1]
-                or c.strike != exclude_exp_strike[0]
+                (
+                    exclude_expiration is None
+                    or c.lastTradeDateOrContractMonth != exclude_expiration
+                )
+                and (exclude_strick is None or c.strike != exclude_strick)
             )
         ]
 
-    log.info(f"{underlying.symbol}: Found {len(contracts)} contracts...")
+    log.info(f"{underlying.symbol}: Processing {len(contracts)} contracts...")
 
     tickers = await ibkr.get_tickers_for_contracts(
         underlying.symbol,
@@ -159,55 +168,46 @@ async def find_eligible_contracts(
         lambda x: _delta_is_valid(x, contract_target_delta), tickers
     )
 
-    log.info(
-        f"{underlying.symbol}: Filtering invalid open interest for {len(list(tickers))} tickers..."
+    tickers = _open_interest_is_valid_sort_by_delta(
+        underlying, list(tickers), right, minimum_open_interest, True
     )
-    tickers = [
-        ticker
-        for ticker in tickers
-        if _open_interest_is_valid(ticker, right, minimum_open_interest)
-    ]
+    delta_reject_tickers = _open_interest_is_valid_sort_by_delta(
+        underlying, list(delta_reject_tickers), right, minimum_open_interest, False
+    )
 
-    tickers = _sort_tickers(tickers, delta_ord_desc=True)
+    # some final processing to ensure we have a valid contract
+    if len(tickers) == 0 and not math.isclose(minimum_price, 0.0):
+        # if we arrive here, it means that 1) we expect to roll for a
+        # credit only, but 2) we didn't find any suitable contracts,
+        # most likely because we can't roll out and up/down to the
+        # target delta
+        #
+        # because of this, we'll allow rolling to a less-than-optimal
+        # strike, provided it's still a credit
+        tickers = delta_reject_tickers
+
+    if len(tickers) < 1:
+        # if there are _still_ no tickers remaining, there's nothing
+        # more we can do
+        raise NoValidContractsError(
+            f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
+        )
 
     the_chosen_ticker = None
 
-    if len(tickers) == 0:
-        if not math.isclose(minimum_price, 0.0):
-            # if we arrive here, it means that 1) we expect to roll for a
-            # credit only, but 2) we didn't find any suitable contracts,
-            # most likely because we can't roll out and up/down to the
-            # target delta
-            #
-            # because of this, we'll allow rolling to a less-than-optimal
-            # strike, provided it's still a credit
-            log.info(
-                f"{underlying.symbol}: Filtering invalid open interest for {len(list(delta_reject_tickers))} tickers..."
-            )
-            tickers = [
-                ticker
-                for ticker in delta_reject_tickers
-                if _open_interest_is_valid(ticker, right, minimum_open_interest)
-            ]
-            tickers = _sort_tickers(tickers, delta_ord_desc=False)
-        if len(tickers) < 1:
-            # if there are _still_ no tickers remaining, there's nothing
-            # more we can do
-            raise NoValidContractsError(
-                f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
-            )
-    elif fallback_minimum_price is not None:
+    if fallback_minimum_price is not None:
         # if there's a fallback minimum price specified, try to find
         # contracts that are at least that price first
         for ticker in tickers:
             if midpoint_or_market_price(ticker) > fallback_minimum_price:
                 the_chosen_ticker = ticker
                 break
-        if the_chosen_ticker is None:
-            # uh of, if we make it here then all of these options are
-            # net debits, so let's at least choose the ticker that will
-            # result in the smallest debit (i.e., minimize the max loss)
-            tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
+
+    if the_chosen_ticker is None:
+        # uh of, if we make it here then all of these options are
+        # net debits, so let's at least choose the ticker that will
+        # result in the smallest debit (i.e., minimize the max loss)
+        tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
 
     if the_chosen_ticker is None:
         # fall back to the first suitable result
@@ -242,19 +242,6 @@ def _valid_strike(
         return strike >= strike_limit
     elif right == OptionRight.CALL:
         return strike >= underlying_price - 0.05 * underlying_price
-
-
-def _open_interest_is_valid(
-    ticker: Ticker, right: OptionRight, minimum_open_interest: int
-) -> bool:
-    if minimum_open_interest > 0:
-        # The open interest value is never present when using historical
-        # data, so just ignore it when the value is None
-        if right == OptionRight.PUT:
-            return ticker.putOpenInterest >= minimum_open_interest
-        if right == OptionRight.CALL:
-            return ticker.callOpenInterest >= minimum_open_interest
-    return True
 
 
 def _delta_is_valid(ticker: Ticker, target_delta: float) -> bool:
@@ -296,18 +283,48 @@ def _price_is_valid(
     ) > minimum_price and cost_doesnt_exceed_market_price(ticker)
 
 
-def _sort_tickers(tickers: List[Ticker], delta_ord_desc: bool) -> List[Ticker]:
-    # sort by delta first, then expiry date
-    tickers = sorted(
-        sorted(
-            tickers,
-            key=lambda t: (
-                abs(t.modelGreeks.delta) if t.modelGreeks and t.modelGreeks.delta else 0
+def _open_interest_is_valid_sort_by_delta(
+    underlying: Contract,
+    tickers: List[Ticker],
+    right: OptionRight,
+    minimum_open_interest: int,
+    delta_ord_desc: bool,
+) -> List[Ticker]:
+    def sort_tickers(tickers: List[Ticker]) -> List[Ticker]:
+        # sort by delta first, then expiry date
+        tickers = sorted(
+            sorted(
+                tickers,
+                key=lambda t: (
+                    abs(t.modelGreeks.delta)
+                    if t.modelGreeks and t.modelGreeks.delta
+                    else 0
+                ),
+                reverse=delta_ord_desc,
             ),
-            reverse=delta_ord_desc,
-        ),
-        key=lambda t: (
-            option_dte(t.contract.lastTradeDateOrContractMonth) if t.contract else 0
-        ),
+            key=lambda t: (
+                option_dte(t.contract.lastTradeDateOrContractMonth) if t.contract else 0
+            ),
+        )
+        return tickers
+
+    def open_interest_is_valid(ticker: Ticker) -> bool:
+        if minimum_open_interest > 0:
+            # The open interest value is never present when using historical
+            # data, so just ignore it when the value is None
+            if right == OptionRight.PUT:
+                return ticker.putOpenInterest >= minimum_open_interest
+            if right == OptionRight.CALL:
+                return ticker.callOpenInterest >= minimum_open_interest
+        return True
+
+    log.info(
+        f"{underlying.symbol}: Filtering invalid open interest for {len(list(tickers))} tickers..."
     )
+    tickers = [ticker for ticker in tickers if open_interest_is_valid(ticker)]
+    log.info(
+        f"{underlying.symbol}: Sorting {len(list(tickers))} tickers with desending delta ..."
+    )
+    tickers = sort_tickers(tickers)
+
     return tickers
