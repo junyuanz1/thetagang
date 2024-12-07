@@ -168,7 +168,7 @@ async def find_eligible_contracts(
         if _open_interest_is_valid(ticker, right, minimum_open_interest)
     ]
 
-    ticker = _sort_tickers(tickers, delta_ord_desc=True)
+    tickers = _sort_tickers(tickers, delta_ord_desc=True)
 
     the_chosen_ticker = None
 
@@ -189,7 +189,7 @@ async def find_eligible_contracts(
                 for ticker in delta_reject_tickers
                 if _open_interest_is_valid(ticker, right, minimum_open_interest)
             ]
-            ticker = _sort_tickers(tickers, delta_ord_desc=False)
+            tickers = _sort_tickers(tickers, delta_ord_desc=False)
         if len(tickers) < 1:
             # if there are _still_ no tickers remaining, there's nothing
             # more we can do
