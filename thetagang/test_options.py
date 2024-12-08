@@ -10,6 +10,7 @@ from thetagang.options import (
     _nearest_strikes,
     _open_interest_is_valid_sort_by_delta,
     _price_is_valid,
+    _select_ticker,
     _valid_strike,
 )
 from thetagang.types import OptionRight
@@ -349,3 +350,175 @@ class TestOptionFiltering:
         )
 
         assert result == [ticker3, ticker5, ticker1, ticker4, ticker2]
+
+
+class TestSelectTicker:
+    @pytest.fixture
+    def mock_underlying(self) -> Mock:
+        contract = Mock(spec=Contract)
+        contract.symbol = "AAPL"
+        return contract
+
+    def create_ticker_with_price(
+        self,
+        delta: float,
+        price: float,
+        strike: float = 100.0,
+        dte: str = "20241231",
+        has_contract: bool = True,
+    ) -> Ticker:
+        ticker = create_mock_ticker(delta=delta, has_contract=has_contract)
+
+        # Set up price mocking
+        ticker.bid = price - 0.05
+        ticker.ask = price + 0.05
+        ticker.last = price
+
+        # Set up contract details only if has_contract is True
+        if has_contract:
+            assert ticker.contract is not None  # Type assertion for mypy
+            ticker.contract.strike = strike
+            ticker.contract.lastTradeDateOrContractMonth = dte
+
+        return ticker
+
+    @patch("thetagang.options.midpoint_or_market_price")
+    def test_normal_selection(self, mock_price_fn: Mock, mock_underlying: Mock) -> None:
+        # Create tickers with different deltas and prices
+        ticker1 = self.create_ticker_with_price(delta=0.3, price=2.5)
+        ticker2 = self.create_ticker_with_price(delta=0.5, price=3.0)
+        ticker3 = self.create_ticker_with_price(delta=0.4, price=2.8)
+
+        # Set up price function mock to return actual prices
+        mock_price_fn.side_effect = lambda t: {
+            ticker1: 2.5,
+            ticker2: 3.0,
+            ticker3: 2.8,
+        }[t]
+
+        valid_tickers = [ticker1, ticker2, ticker3]
+        delta_reject_tickers = []
+
+        result = _select_ticker(
+            underlying=mock_underlying,
+            right=OptionRight.CALL,
+            valid_tickers=iter(valid_tickers),
+            delta_reject_tickers=iter(delta_reject_tickers),
+            minimum_open_interest=0,
+            minimum_price=0.0,
+            fallback_minimum_price=None,
+        )
+
+        # Should select highest delta ticker
+        assert result == ticker2
+
+    @patch("thetagang.options.midpoint_or_market_price")
+    def test_fallback_to_delta_reject(
+        self, mock_price_fn: Mock, mock_underlying: Mock
+    ) -> None:
+        # Create valid tickers with low open interest
+        ticker1 = create_mock_ticker(
+            delta=0.3,
+            has_contract=True,
+            put_oi=500,  # Below minimum
+            call_oi=500,  # Below minimum
+        )
+
+        # Create delta reject tickers with valid open interest
+        ticker2 = create_mock_ticker(
+            delta=0.6,
+            has_contract=True,
+            put_oi=1500,  # Above minimum
+            call_oi=1500,  # Above minimum
+        )
+        ticker3 = create_mock_ticker(
+            delta=0.7,
+            has_contract=True,
+            put_oi=2000,  # Above minimum
+            call_oi=2000,  # Above minimum
+        )
+
+        # Set up price function mock
+        mock_price_fn.side_effect = lambda t: {
+            ticker1: 2.5,
+            ticker2: 3.0,
+            ticker3: 3.5,
+        }[t]
+
+        valid_tickers = [ticker1]
+        delta_reject_tickers = [ticker2, ticker3]
+
+        result = _select_ticker(
+            underlying=mock_underlying,
+            right=OptionRight.CALL,
+            valid_tickers=iter(valid_tickers),
+            delta_reject_tickers=iter(delta_reject_tickers),
+            minimum_open_interest=1000,  # High threshold to force fallback
+            minimum_price=1.0,
+            fallback_minimum_price=None,
+        )
+
+        # Should select from delta_reject_tickers
+        assert result == ticker3, "Should select the ticker with highest delta"
+        assert result.modelGreeks is not None
+        assert result.modelGreeks.delta == 0.7
+
+    @patch("thetagang.options.midpoint_or_market_price")
+    def test_fallback_minimum_price(
+        self, mock_price_fn: Mock, mock_underlying: Mock
+    ) -> None:
+        ticker1 = self.create_ticker_with_price(delta=0.3, price=1.5)
+        ticker2 = self.create_ticker_with_price(delta=0.5, price=2.5)
+        ticker3 = self.create_ticker_with_price(delta=0.4, price=2.0)
+
+        # Set up price function mock
+        mock_price_fn.side_effect = lambda t: {
+            ticker1: 1.5,
+            ticker2: 2.5,
+            ticker3: 2.0,
+        }[t]
+
+        valid_tickers = [ticker1, ticker2, ticker3]
+        delta_reject_tickers = []
+
+        result = _select_ticker(
+            underlying=mock_underlying,
+            right=OptionRight.CALL,
+            valid_tickers=iter(valid_tickers),
+            delta_reject_tickers=iter(delta_reject_tickers),
+            minimum_open_interest=0,
+            minimum_price=0.0,
+            fallback_minimum_price=2.2,  # Only ticker2 meets this
+        )
+
+        assert result == ticker2
+
+    @patch("thetagang.options.midpoint_or_market_price")
+    def test_price_sorting_fallback(
+        self, mock_price_fn: Mock, mock_underlying: Mock
+    ) -> None:
+        ticker1 = self.create_ticker_with_price(delta=0.3, price=3.0)
+        ticker2 = self.create_ticker_with_price(delta=0.5, price=1.0)
+        ticker3 = self.create_ticker_with_price(delta=0.4, price=2.0)
+
+        # Set up price function mock
+        mock_price_fn.side_effect = lambda t: {
+            ticker1: 3.0,
+            ticker2: 1.0,
+            ticker3: 2.0,
+        }[t]
+
+        valid_tickers = [ticker1, ticker2, ticker3]
+        delta_reject_tickers = []
+
+        result = _select_ticker(
+            underlying=mock_underlying,
+            right=OptionRight.CALL,
+            valid_tickers=iter(valid_tickers),
+            delta_reject_tickers=iter(delta_reject_tickers),
+            minimum_open_interest=0,
+            minimum_price=0.0,
+            fallback_minimum_price=5.0,  # Force price sorting as none meet this
+        )
+
+        assert result == ticker1

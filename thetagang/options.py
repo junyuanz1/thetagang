@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 from ib_async import Contract, Option, Ticker, util
 from more_itertools import partition
@@ -168,66 +168,15 @@ async def find_eligible_contracts(
         lambda x: _delta_is_valid(x, contract_target_delta), tickers
     )
 
-    tickers = _open_interest_is_valid_sort_by_delta(
-        underlying, list(tickers), right, minimum_open_interest, True
+    return _select_ticker(
+        underlying,
+        right,
+        tickers,
+        delta_reject_tickers,
+        minimum_open_interest,
+        minimum_price,
+        fallback_minimum_price,
     )
-
-    # some final processing to ensure we have a valid contract
-    if len(tickers) == 0 and not math.isclose(minimum_price, 0.0):
-        log.warning(
-            f"{underlying.symbol}: No valid contracts found with valid open interest, falling back to search for contracts with higher delta..."
-        )
-        # if we arrive here, it means that 1) we expect to roll for a
-        # credit only, but 2) we didn't find any suitable contracts,
-        # most likely because we can't roll out and up/down to the
-        # target delta
-        #
-        # because of this, we'll allow rolling to a less-than-optimal
-        # strike, provided it's still a credit
-        tickers = _open_interest_is_valid_sort_by_delta(
-            underlying, list(delta_reject_tickers), right, minimum_open_interest, False
-        )
-
-    if len(tickers) < 1:
-        # if there are _still_ no tickers remaining, there's nothing
-        # more we can do
-        raise NoValidContractsError(
-            f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
-        )
-
-    the_chosen_ticker = None
-
-    if fallback_minimum_price is not None:
-        # if there's a fallback minimum price specified, try to find
-        # contracts that are at least that price first
-        for ticker in tickers:
-            if midpoint_or_market_price(ticker) > fallback_minimum_price:
-                the_chosen_ticker = ticker
-                break
-
-    if the_chosen_ticker is None:
-        # uh of, if we make it here then all of these options are
-        # net debits, so let's at least choose the ticker that will
-        # result in the smallest debit (i.e., minimize the max loss)
-        tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
-
-    if the_chosen_ticker is None:
-        # fall back to the first suitable result
-        the_chosen_ticker = tickers[0]
-
-    if not the_chosen_ticker or not the_chosen_ticker.contract:
-        raise RuntimeError(
-            f"{underlying.symbol}: Something went wrong, the_chosen_ticker={the_chosen_ticker}"
-        )
-
-    log.notice(
-        f"{underlying.symbol}: Found suitable contract at "
-        f"strike={the_chosen_ticker.contract.strike} "
-        f"dte={option_dte(the_chosen_ticker.contract.lastTradeDateOrContractMonth)} "
-        f"price={dfmt(midpoint_or_market_price(the_chosen_ticker),3)}"
-    )
-
-    return the_chosen_ticker
 
 
 def _valid_strike(
@@ -330,3 +279,74 @@ def _open_interest_is_valid_sort_by_delta(
     tickers = sort_tickers(tickers)
 
     return tickers
+
+
+def _select_ticker(
+    underlying: Contract,
+    right: OptionRight,
+    valid_tickers: Iterator[Ticker],
+    delta_reject_tickers: Iterator[Ticker],
+    minimum_open_interest: int,
+    minimum_price: float,
+    fallback_minimum_price: Optional[float],
+) -> Ticker:
+    tickers = _open_interest_is_valid_sort_by_delta(
+        underlying, list(valid_tickers), right, minimum_open_interest, True
+    )
+
+    # some final processing to ensure we have a valid contract
+    if len(tickers) == 0 and not math.isclose(minimum_price, 0.0):
+        log.warning(
+            f"{underlying.symbol}: No valid contracts found with valid open interest, falling back to search for contracts with higher delta..."
+        )
+        # if we arrive here, it means that 1) we expect to roll for a
+        # credit only, but 2) we didn't find any suitable contracts,
+        # most likely because we can't roll out and up/down to the
+        # target delta
+        #
+        # because of this, we'll allow rolling to a less-than-optimal
+        # strike, provided it's still a credit
+        tickers = _open_interest_is_valid_sort_by_delta(
+            underlying, list(delta_reject_tickers), right, minimum_open_interest, False
+        )
+
+    if len(tickers) < 1:
+        # if there are _still_ no tickers remaining, there's nothing
+        # more we can do
+        raise NoValidContractsError(
+            f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
+        )
+
+    the_chosen_ticker = None
+
+    if fallback_minimum_price is not None:
+        # if there's a fallback minimum price specified, try to find
+        # contracts that are at least that price first
+        for ticker in tickers:
+            if midpoint_or_market_price(ticker) > fallback_minimum_price:
+                the_chosen_ticker = ticker
+                break
+
+    if the_chosen_ticker is None:
+        # uh of, if we make it here then all of these options are
+        # net debits, so let's at least choose the ticker that will
+        # result in the smallest debit (i.e., minimize the max loss)
+        tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
+
+    if the_chosen_ticker is None:
+        # fall back to the first suitable result
+        the_chosen_ticker = tickers[0]
+
+    if not the_chosen_ticker or not the_chosen_ticker.contract:
+        raise RuntimeError(
+            f"{underlying.symbol}: Something went wrong, the_chosen_ticker={the_chosen_ticker}"
+        )
+
+    log.notice(
+        f"{underlying.symbol}: Found suitable contract at "
+        f"strike={the_chosen_ticker.contract.strike} "
+        f"dte={option_dte(the_chosen_ticker.contract.lastTradeDateOrContractMonth)} "
+        f"price={dfmt(midpoint_or_market_price(the_chosen_ticker),3)}"
+    )
+
+    return the_chosen_ticker
