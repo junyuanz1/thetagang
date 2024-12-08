@@ -294,44 +294,46 @@ def _select_ticker(
         underlying, list(valid_tickers), right, minimum_open_interest, True
     )
 
-    # some final processing to ensure we have a valid contract
-    if len(tickers) == 0 and not math.isclose(minimum_price, 0.0):
-        log.warning(
-            f"{underlying.symbol}: No valid contracts found with valid open interest, falling back to search for contracts with higher delta..."
-        )
-        # if we arrive here, it means that 1) we expect to roll for a
-        # credit only, but 2) we didn't find any suitable contracts,
-        # most likely because we can't roll out and up/down to the
-        # target delta
-        #
-        # because of this, we'll allow rolling to a less-than-optimal
-        # strike, provided it's still a credit
-        tickers = _open_interest_is_valid_sort_by_delta(
-            underlying, list(delta_reject_tickers), right, minimum_open_interest, False
-        )
-
-    if len(tickers) < 1:
-        # if there are _still_ no tickers remaining, there's nothing
-        # more we can do
-        raise NoValidContractsError(
-            f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
-        )
-
     the_chosen_ticker = None
 
-    if fallback_minimum_price is not None:
+    # some final processing to ensure we have a valid contract
+    if len(tickers) == 0:
+        if not math.isclose(minimum_price, 0.0):
+            log.warning(
+                f"{underlying.symbol}: No valid contracts found with valid open interest, falling back to search for contracts with higher delta..."
+            )
+            # if we arrive here, it means that 1) we expect to roll for a
+            # credit only, but 2) we didn't find any suitable contracts,
+            # most likely because we can't roll out and up/down to the
+            # target delta
+            #
+            # because of this, we'll allow rolling to a less-than-optimal
+            # strike, provided it's still a credit
+            tickers = _open_interest_is_valid_sort_by_delta(
+                underlying,
+                list(delta_reject_tickers),
+                right,
+                minimum_open_interest,
+                False,
+            )
+        if len(tickers) < 1:
+            # if there are _still_ no tickers remaining, there's nothing
+            # more we can do
+            raise NoValidContractsError(
+                f"No valid contracts found for {underlying.symbol}. Continuing anyway...",
+            )
+    elif fallback_minimum_price is not None:
         # if there's a fallback minimum price specified, try to find
         # contracts that are at least that price first
         for ticker in tickers:
             if midpoint_or_market_price(ticker) > fallback_minimum_price:
                 the_chosen_ticker = ticker
                 break
-
-    if the_chosen_ticker is None:
-        # uh of, if we make it here then all of these options are
-        # net debits, so let's at least choose the ticker that will
-        # result in the smallest debit (i.e., minimize the max loss)
-        tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
+        if the_chosen_ticker is None:
+            # uh of, if we make it here then all of these options are
+            # net debits, so let's at least choose the ticker that will
+            # result in the smallest debit (i.e., minimize the max loss)
+            tickers = sorted(tickers, key=midpoint_or_market_price, reverse=True)
 
     if the_chosen_ticker is None:
         # fall back to the first suitable result
