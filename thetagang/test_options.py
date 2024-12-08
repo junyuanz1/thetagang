@@ -1,8 +1,15 @@
-from unittest.mock import MagicMock, patch
+import math
+from typing import Optional, cast
+from unittest.mock import MagicMock, Mock, patch
 
 from ib_async import Option, Ticker
 
-from thetagang.options import _nearest_strikes, _price_is_valid
+from thetagang.options import (
+    _delta_is_valid,
+    _nearest_strikes,
+    _price_is_valid,
+    _valid_strike,
+)
 from thetagang.types import OptionRight
 
 
@@ -72,3 +79,66 @@ def test_nearest_strikes_call_less_than_chain() -> None:
     strikes_per_chain = 3
     result = _nearest_strikes(OptionRight.CALL, strikes_per_chain, strikes)
     assert result == [90, 95]
+
+
+def test_valid_strike_put_within_limit() -> None:
+    assert _valid_strike(OptionRight.PUT, 90, 100, 95) is True
+
+
+def test_valid_strike_put_exceeds_limit() -> None:
+    assert _valid_strike(OptionRight.PUT, 100, 100, 95) is False
+
+
+def test_valid_strike_put_within_price_range() -> None:
+    assert _valid_strike(OptionRight.PUT, 105, 100, None) is True
+
+
+def test_valid_strike_put_exceeds_price_range() -> None:
+    assert _valid_strike(OptionRight.PUT, 110, 100, None) is False
+
+
+def test_valid_strike_call_within_limit() -> None:
+    assert _valid_strike(OptionRight.CALL, 110, 100, 105) is True
+
+
+def test_valid_strike_call_below_limit() -> None:
+    assert _valid_strike(OptionRight.CALL, 100, 100, 105) is False
+
+
+def test_valid_strike_call_within_price_range() -> None:
+    assert _valid_strike(OptionRight.CALL, 95, 100, None) is True
+
+
+def test_valid_strike_call_below_price_range() -> None:
+    assert _valid_strike(OptionRight.CALL, 90, 100, None) is False
+
+
+def test_delta_is_valid() -> None:
+    # Create mocked objects that will be cast to Ticker type
+    def create_mock_ticker(delta: Optional[float] = None) -> Ticker:
+        ticker = Mock()
+        ticker.modelGreeks = Mock()
+        ticker.modelGreeks.delta = delta
+        return cast(Ticker, ticker)  # Cast Mock to Ticker type for type checking
+
+    # Test cases
+    test_cases = [
+        # Valid cases
+        (create_mock_ticker(delta=0.3), 0.5, True),  # Valid delta within target
+        (create_mock_ticker(delta=-0.2), 0.5, True),  # Valid negative delta
+        (create_mock_ticker(delta=0.5), 0.5, True),  # Delta equals target
+        # Invalid cases
+        (cast(Ticker, Mock(modelGreeks=None)), 0.5, False),  # No modelGreeks
+        (create_mock_ticker(delta=None), 0.5, False),  # Delta is None
+        (create_mock_ticker(delta=math.nan), 0.5, False),  # Delta is NaN
+        (create_mock_ticker(delta=0.6), 0.5, False),  # Delta exceeds target
+        (create_mock_ticker(delta=-0.7), 0.5, False),  # Negative delta exceeds target
+    ]
+
+    # Run all test cases
+    for ticker, target_delta, expected_result in test_cases:
+        result = _delta_is_valid(ticker, target_delta)
+        assert result == expected_result, (
+            f"Failed for delta={ticker.modelGreeks.delta if hasattr(ticker, 'modelGreeks') and ticker.modelGreeks else None}, "
+            f"target={target_delta}, expected={expected_result}, got={result}"
+        )
