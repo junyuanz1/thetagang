@@ -240,10 +240,40 @@ class TestOptionFiltering:
             for t in result
         ]
         expected_pairs = [
-            (0.5, True),  # Highest delta with contract
-            (0.5, False),  # Same delta, no contract
+            (0.5, False),  # Highest delta, no contract
+            (None, False),  # None modelGreeks gets grouped with similar delta value
+            (0.5, True),  # Same delta with contract
             (0.3, True),  # Lower delta with contract
-            (None, False),  # No modelGreeks, no contract
+        ]
+        assert result_pairs == expected_pairs
+
+    # Add a more focused test for None contract grouping
+    def test_none_contract_grouping(self, mock_underlying: Mock) -> None:
+        tickers = [
+            create_mock_ticker(delta=0.5, has_contract=True, has_model_greeks=True),
+            create_mock_ticker(delta=None, has_contract=False, has_model_greeks=False),
+            create_mock_ticker(delta=0.5, has_contract=False, has_model_greeks=True),
+        ]
+
+        result = _open_interest_is_valid_sort_by_delta(
+            underlying=mock_underlying,
+            tickers=tickers,
+            right=OptionRight.CALL,
+            minimum_open_interest=0,
+            delta_ord_desc=True,
+        )
+
+        result_pairs = [
+            (
+                t.modelGreeks.delta if t.modelGreeks else None,
+                True if t.contract else False,
+            )
+            for t in result
+        ]
+        expected_pairs = [
+            (0.5, False),  # No contract
+            (None, False),  # None modelGreeks grouped with no contract
+            (0.5, True),  # With contract
         ]
         assert result_pairs == expected_pairs
 
