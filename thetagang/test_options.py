@@ -185,11 +185,11 @@ class TestOptionFiltering:
         return contract
 
     def test_none_contract(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(delta=0.3, has_contract=True),
-            create_mock_ticker(delta=0.5, has_contract=False),  # None contract
-            create_mock_ticker(delta=0.4, has_contract=True),
-        ]
+        ticker1 = create_mock_ticker(delta=0.3, has_contract=True)
+        ticker2 = create_mock_ticker(delta=0.5, has_contract=False)  # None contract
+        ticker3 = create_mock_ticker(delta=0.4, has_contract=True)
+
+        tickers = [ticker1, ticker2, ticker3]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -199,29 +199,24 @@ class TestOptionFiltering:
             delta_ord_desc=True,
         )
 
-        # Verify that None contract are treated as DTE=0 in sorting
-        result_pairs = [
-            (
-                t.modelGreeks.delta if t.modelGreeks else None,
-                t.contract.lastTradeDateOrContractMonth if t.contract else None,
-            )
-            for t in result
-        ]
-        # Tickers should be sorted by delta first, then by date with None contract treated as DTE=0
-        expected_pairs = [
-            (0.5, None),  # Highest delta, None contract
-            (0.4, "20241231"),
-            (0.3, "20241231"),
-        ]
-        assert result_pairs == expected_pairs
+        # Verify correct order: None contract with highest delta first, then by delta
+        assert result == [ticker2, ticker3, ticker1]
 
     def test_mixed_none_values(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(delta=0.3, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(delta=None, has_contract=False, has_model_greeks=False),
-            create_mock_ticker(delta=0.5, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(delta=0.5, has_contract=False, has_model_greeks=True),
-        ]
+        ticker1 = create_mock_ticker(
+            delta=0.3, has_contract=True, has_model_greeks=True
+        )
+        ticker2 = create_mock_ticker(
+            delta=None, has_contract=False, has_model_greeks=False
+        )
+        ticker3 = create_mock_ticker(
+            delta=0.5, has_contract=True, has_model_greeks=True
+        )
+        ticker4 = create_mock_ticker(
+            delta=0.5, has_contract=False, has_model_greeks=True
+        )
+
+        tickers = [ticker1, ticker2, ticker3, ticker4]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -231,29 +226,20 @@ class TestOptionFiltering:
             delta_ord_desc=True,
         )
 
-        # Verify sorting with mixed None values
-        result_pairs = [
-            (
-                t.modelGreeks.delta if t.modelGreeks else None,
-                True if t.contract else False,  # Just check contract existence
-            )
-            for t in result
-        ]
-        expected_pairs = [
-            (0.5, False),  # Highest delta, no contract
-            (None, False),  # None modelGreeks gets grouped with similar delta value
-            (0.5, True),  # Same delta with contract
-            (0.3, True),  # Lower delta with contract
-        ]
-        assert result_pairs == expected_pairs
+        assert result == [ticker4, ticker2, ticker3, ticker1]
 
-    # Add a more focused test for None contract grouping
     def test_none_contract_grouping(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(delta=0.5, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(delta=None, has_contract=False, has_model_greeks=False),
-            create_mock_ticker(delta=0.5, has_contract=False, has_model_greeks=True),
-        ]
+        ticker1 = create_mock_ticker(
+            delta=0.5, has_contract=True, has_model_greeks=True
+        )
+        ticker2 = create_mock_ticker(
+            delta=None, has_contract=False, has_model_greeks=False
+        )
+        ticker3 = create_mock_ticker(
+            delta=0.5, has_contract=False, has_model_greeks=True
+        )
+
+        tickers = [ticker1, ticker2, ticker3]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -263,25 +249,17 @@ class TestOptionFiltering:
             delta_ord_desc=True,
         )
 
-        result_pairs = [
-            (
-                t.modelGreeks.delta if t.modelGreeks else None,
-                True if t.contract else False,
-            )
-            for t in result
-        ]
-        expected_pairs = [
-            (0.5, False),  # No contract
-            (None, False),  # None modelGreeks grouped with no contract
-            (0.5, True),  # With contract
-        ]
-        assert result_pairs == expected_pairs
+        assert result == [ticker3, ticker2, ticker1]
 
     def test_all_none_values(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(delta=None, has_model_greeks=False, has_contract=False),
-            create_mock_ticker(delta=None, has_model_greeks=False, has_contract=False),
-        ]
+        ticker1 = create_mock_ticker(
+            delta=None, has_model_greeks=False, has_contract=False
+        )
+        ticker2 = create_mock_ticker(
+            delta=None, has_model_greeks=False, has_contract=False
+        )
+
+        tickers = [ticker1, ticker2]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -291,18 +269,14 @@ class TestOptionFiltering:
             delta_ord_desc=True,
         )
 
-        # Should not raise any errors and should maintain order
-        assert len(result) == 2
-        assert all(t.modelGreeks is None for t in result)
-        assert all(t.contract is None for t in result)
+        assert result == [ticker1, ticker2]  # Should maintain original order
 
-    # Previous test cases remain the same, just updating their create_mock_ticker calls
     def test_open_interest_filtering_puts(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(put_oi=50, has_contract=True),
-            create_mock_ticker(put_oi=150, has_contract=True),
-            create_mock_ticker(put_oi=100, has_contract=True),
-        ]
+        ticker1 = create_mock_ticker(put_oi=50, has_contract=True)
+        ticker2 = create_mock_ticker(put_oi=150, has_contract=True)
+        ticker3 = create_mock_ticker(put_oi=100, has_contract=True)
+
+        tickers = [ticker1, ticker2, ticker3]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -312,21 +286,30 @@ class TestOptionFiltering:
             delta_ord_desc=True,
         )
 
+        # Only tickers with OI >= 100 should remain
         assert len(result) == 2
-        assert all(t.putOpenInterest >= 100 for t in result)
+        assert ticker2 in result
+        assert ticker3 in result
+        assert ticker1 not in result
 
     def test_delta_sorting_descending(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(delta=0.2, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(delta=0.5, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(
-                delta=None, has_contract=True, has_model_greeks=False
-            ),  # None modelGreeks
-            create_mock_ticker(delta=0.3, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(
-                delta=None, has_contract=True, has_model_greeks=False
-            ),  # Another None modelGreeks
-        ]
+        ticker1 = create_mock_ticker(
+            delta=0.2, has_contract=True, has_model_greeks=True
+        )
+        ticker2 = create_mock_ticker(
+            delta=0.5, has_contract=True, has_model_greeks=True
+        )
+        ticker3 = create_mock_ticker(
+            delta=None, has_contract=True, has_model_greeks=False
+        )
+        ticker4 = create_mock_ticker(
+            delta=0.3, has_contract=True, has_model_greeks=True
+        )
+        ticker5 = create_mock_ticker(
+            delta=None, has_contract=True, has_model_greeks=False
+        )
+
+        tickers = [ticker1, ticker2, ticker3, ticker4, ticker5]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -336,23 +319,26 @@ class TestOptionFiltering:
             delta_ord_desc=True,
         )
 
-        # Extract deltas safely, handling None modelGreeks
-        deltas = [t.modelGreeks.delta if t.modelGreeks else None for t in result]
-        # None modelGreeks should be treated as delta=0 and sorted to the end
-        assert deltas == [0.5, 0.3, 0.2, None, None]
+        assert result == [ticker2, ticker4, ticker1, ticker3, ticker5]
 
     def test_delta_sorting_ascending(self, mock_underlying: Mock) -> None:
-        tickers = [
-            create_mock_ticker(delta=0.2, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(delta=0.5, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(
-                delta=None, has_contract=True, has_model_greeks=False
-            ),  # None modelGreeks
-            create_mock_ticker(delta=0.3, has_contract=True, has_model_greeks=True),
-            create_mock_ticker(
-                delta=None, has_contract=True, has_model_greeks=False
-            ),  # Another None modelGreeks
-        ]
+        ticker1 = create_mock_ticker(
+            delta=0.2, has_contract=True, has_model_greeks=True
+        )
+        ticker2 = create_mock_ticker(
+            delta=0.5, has_contract=True, has_model_greeks=True
+        )
+        ticker3 = create_mock_ticker(
+            delta=None, has_contract=True, has_model_greeks=False
+        )
+        ticker4 = create_mock_ticker(
+            delta=0.3, has_contract=True, has_model_greeks=True
+        )
+        ticker5 = create_mock_ticker(
+            delta=None, has_contract=True, has_model_greeks=False
+        )
+
+        tickers = [ticker1, ticker2, ticker3, ticker4, ticker5]
 
         result = _open_interest_is_valid_sort_by_delta(
             underlying=mock_underlying,
@@ -362,7 +348,4 @@ class TestOptionFiltering:
             delta_ord_desc=False,
         )
 
-        # Extract deltas safely, handling None modelGreeks
-        deltas = [t.modelGreeks.delta if t.modelGreeks else None for t in result]
-        # None modelGreeks should be treated as delta=0 and sorted to the beginning when ascending
-        assert deltas == [None, None, 0.2, 0.3, 0.5]
+        assert result == [ticker3, ticker5, ticker1, ticker4, ticker2]
