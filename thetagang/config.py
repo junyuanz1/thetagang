@@ -459,6 +459,9 @@ class Config(BaseModel, DisplayMixin):
     symbols: Dict[str, SymbolConfig] = Field(default_factory=dict)
     constants: ConstantsConfig = Field(default_factory=ConstantsConfig)
 
+    def get_order_exchange(self) -> str:
+        return self.orders.exchange
+
     def trading_is_allowed(self, symbole: str) -> bool:
         symbol_config = self.symbols.get(symbole)
         return not symbol_config or not symbol_config.no_trading
